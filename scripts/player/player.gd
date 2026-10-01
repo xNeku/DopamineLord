@@ -10,6 +10,11 @@ extends CharacterBody2D
 const LAYER_WORLD := 1
 const LAYER_BODIES := 2
 const LANDING_STEP := 4.0
+## Con qué rapidez un jugador remoto alcanza la posición que nos llega por red.
+const REMOTE_SMOOTHING := 15.0
+
+## Se emite al despegar, con el origen y el destino ya recalculados. La red lo reenvía.
+signal jumped(from: Vector2, to: Vector2)
 
 @export_group("Movimiento")
 ## Velocidad en píxeles de pantalla por segundo (horizontalmente).
@@ -34,12 +39,44 @@ var facing: Vector2 = Vector2(1, 1)
 var is_jumping: bool = false
 var jump_cooldown_left: float = 0.0
 
+## Id de red del dueño de este jugador. Si is_remote, lo controla otro jugador por red.
+var peer_id: int = 1
+var is_remote: bool = false
+
+var _net_position: Vector2
+var _net_facing: Vector2 = Vector2(1, 1)
+var _net_walking: float = 0.0
+var _net_received: bool = false
+
 var _jump_from: Vector2
 var _jump_to: Vector2
 var _jump_time: float = 0.0
 
 @onready var visual: PlayerVisual = $PlayerVisual
 @onready var _shape: CollisionShape2D = $CollisionShape2D
+
+
+## Debe llamarse una vez, después de añadirlo al árbol. Un jugador remoto no lee input.
+func setup(id: int, local: bool) -> void:
+	peer_id = id
+	is_remote = not local
+	if is_remote:
+		$PlayerInput.free()
+
+
+## Estado que manda el dueño de este jugador remoto.
+func apply_remote_state(new_position: Vector2, new_facing: Vector2, walking: float) -> void:
+	_net_position = new_position
+	_net_facing = new_facing
+	_net_walking = walking
+	if not _net_received:
+		_net_received = true
+		position = new_position
+
+
+## El dueño de este jugador remoto ha saltado: lo reproducimos tal cual, sin recalcular.
+func start_remote_jump(from: Vector2, to: Vector2) -> void:
+	_begin_jump(from, to, to - from)
 
 
 func set_move_order(direction: Vector2) -> void:
@@ -60,15 +97,23 @@ func request_jump(direction: Vector2) -> bool:
 	var landing := _resolve_landing(position, wanted)
 	if landing.distance_to(position) < LANDING_STEP:
 		return false
-	_jump_from = position
-	_jump_to = landing
-	_jump_time = 0.0
-	is_jumping = true
-	facing = direction
+	_begin_jump(position, landing, direction)
+	jumped.emit(position, landing)
 	return true
 
 
+func _begin_jump(from: Vector2, to: Vector2, direction: Vector2) -> void:
+	_jump_from = from
+	_jump_to = to
+	_jump_time = 0.0
+	is_jumping = true
+	facing = direction
+
+
 func _physics_process(delta: float) -> void:
+	if is_remote:
+		_physics_remote(delta)
+		return
 	if is_jumping:
 		_update_jump(delta)
 	else:
@@ -80,6 +125,17 @@ func _physics_process(delta: float) -> void:
 		visual.set_walking(move_order.length())
 
 	visual.set_facing(facing if is_jumping else move_order)
+
+
+func _physics_remote(delta: float) -> void:
+	if is_jumping:
+		_update_jump(delta)
+		visual.set_facing(facing)
+		return
+	if _net_received:
+		position = position.lerp(_net_position, 1.0 - exp(-REMOTE_SMOOTHING * delta))
+	visual.set_facing(_net_facing)
+	visual.set_walking(_net_walking)
 
 
 ## El salto es comprometido: no se puede dirigir en el aire. Va directo de origen a destino

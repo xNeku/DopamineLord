@@ -11,8 +11,12 @@ config_version=5
 [application]
 
 config/name="DopamineLord"
-run/main_scene="res://scenes/test_movimiento.tscn"
+run/main_scene="res://scenes/menu_red.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+Net="*res://scripts/net/network_manager.gd"
 
 [display]
 

@@ -1,20 +1,47 @@
 extends Node2D
 ## Escena de prueba de movimiento y salto: una cuadrícula isométrica (tile 64×32), un jugador
 ## y unos obstáculos. La pared (gris) bloquea el salto; los árboles (verdes) y el "mob" (rojo)
-## se saltan por encima, pero no se puede aterrizar encima. La cámara sigue al jugador.
+## se saltan por encima, pero no se puede aterrizar encima. La cámara sigue al jugador local.
+## Si hay una partida en red, aparecen también los jugadores de los demás.
 
+const PLAYER_SCENE := preload("res://scenes/player.tscn")
+const MENU_SCENE := "res://scenes/menu_red.tscn"
 const TILE_HALF := Vector2(32, 16)
 const GRID_SIZE := 12
+## Cada cuánto manda el jugador local su estado a los demás (20 veces por segundo).
+const STATE_INTERVAL := 0.05
 
 @onready var _camera: Camera2D = $Camera2D
 @onready var _hud: Label = $Hud/Estado
 
-## Lista de jugadores (nunca uno global).
+## Todos los jugadores de la partida; el local es el primero (nunca uno global).
 var players: Array[Player] = []
+
+var _local: Player
+var _remote_by_peer: Dictionary = {}
+var _state_timer: float = 0.0
+var _debug_timer: float = 0.0
 
 
 func _ready() -> void:
-	players.append($Player)
+	_local = $Player
+	_local.setup(multiplayer.get_unique_id(), true)
+	_local.position = _spawn_point()
+	_local.jumped.connect(Net.send_jump)
+	players.append(_local)
+	if Net.bot_mode:
+		_local.get_node("PlayerInput").free()
+		var bot := BotInput.new()
+		_local.add_child(bot)
+
+	for peer_id in multiplayer.get_peers():
+		_add_remote(peer_id)
+	Net.peer_joined.connect(_add_remote)
+	Net.peer_left.connect(_remove_remote)
+	Net.state_received.connect(_on_state_received)
+	Net.jump_received.connect(_on_jump_received)
+	Net.disconnected.connect(_back_to_menu)
+
 	# Pared: capa 1 (mundo). Cuerpos: capa 2.
 	_add_obstacle(Vector2(150, 0), Vector2(12, 70), 1, Color(0.55, 0.55, 0.6), false)
 	_add_obstacle(Vector2(-80, 0), Vector2(16, 16), 2, Color(0.2, 0.55, 0.25), true)
@@ -24,14 +51,92 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	var player := players[0]
-	_camera.position = player.position
-	if player.is_jumping:
-		_hud.text = "Salto: en el aire"
-	elif player.jump_cooldown_left > 0.0:
-		_hud.text = "Salto: recarga %.1f s" % player.jump_cooldown_left
-	else:
-		_hud.text = "Salto: listo"
+	_camera.position = _local.position
+	_hud.text = _jump_text() + "\n" + _network_text()
+
+
+func _physics_process(delta: float) -> void:
+	_state_timer += delta
+	if _state_timer >= STATE_INTERVAL:
+		_state_timer = 0.0
+		var walking := 0.0 if _local.is_jumping else _local.move_order.length()
+		Net.send_state(_local.position, _local.facing, walking)
+
+	if Net.bot_mode:
+		_debug_timer += delta
+		if _debug_timer >= 2.0:
+			_debug_timer = 0.0
+			_print_debug()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		_back_to_menu()
+
+
+func _spawn_point() -> Vector2:
+	var ids: Array = [multiplayer.get_unique_id()]
+	ids.append_array(multiplayer.get_peers())
+	ids.sort()
+	return Vector2(ids.find(multiplayer.get_unique_id()) * 28.0, 0.0)
+
+
+func _add_remote(peer_id: int) -> void:
+	if _remote_by_peer.has(peer_id):
+		return
+	var player := PLAYER_SCENE.instantiate() as Player
+	add_child(player)
+	player.setup(peer_id, false)
+	_remote_by_peer[peer_id] = player
+	players.append(player)
+
+
+func _remove_remote(peer_id: int) -> void:
+	var player: Player = _remote_by_peer.get(peer_id)
+	if player == null:
+		return
+	_remote_by_peer.erase(peer_id)
+	players.erase(player)
+	player.queue_free()
+
+
+func _on_state_received(peer_id: int, position: Vector2, facing: Vector2, walking: float) -> void:
+	if _remote_by_peer.has(peer_id):
+		_remote_by_peer[peer_id].apply_remote_state(position, facing, walking)
+
+
+func _on_jump_received(peer_id: int, from: Vector2, to: Vector2) -> void:
+	if _remote_by_peer.has(peer_id):
+		_remote_by_peer[peer_id].start_remote_jump(from, to)
+
+
+func _back_to_menu() -> void:
+	Net.leave()
+	get_tree().change_scene_to_file(MENU_SCENE)
+
+
+func _jump_text() -> String:
+	if _local.is_jumping:
+		return "Salto: en el aire"
+	if _local.jump_cooldown_left > 0.0:
+		return "Salto: recarga %.1f s" % _local.jump_cooldown_left
+	return "Salto: listo"
+
+
+func _network_text() -> String:
+	if not Net.is_online:
+		return "Solo (Esc: menú)"
+	if multiplayer.is_server():
+		return "Host, %d jugadores. IP: %s (Esc: salir)" % [Net.player_count(), ", ".join(Net.local_addresses())]
+	return "Conectado, %d jugadores (Esc: salir)" % Net.player_count()
+
+
+func _print_debug() -> void:
+	var line := "[red] yo=%d jugadores=%d local=%s" % [multiplayer.get_unique_id(), Net.player_count(), _local.position.round()]
+	for peer_id in _remote_by_peer:
+		var remote: Player = _remote_by_peer[peer_id]
+		line += " | %d=%s%s" % [peer_id, remote.position.round(), " (salta)" if remote.is_jumping else ""]
+	print(line)
 
 
 func _draw() -> void:
