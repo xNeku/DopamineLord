@@ -1,22 +1,28 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://dekkln8tc8v8s"]
 
-[ext_resource type="Script" path="res://scripts/player/player.gd" id="1"]
+[ext_resource type="Script" uid="uid://bdhy846b68ir5" path="res://scripts/player/player.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/player_visual.tscn" id="2"]
-[ext_resource type="Script" path="res://scripts/player/player_input.gd" id="3"]
+[ext_resource type="Script" uid="uid://ddtalvi20o3fg" path="res://scripts/player/player_input.gd" id="3"]
 
 [sub_resource type="CircleShape2D" id="1"]
 radius = 7.0
 
-[node name="Player" type="CharacterBody2D"]
+[node name="Player" type="CharacterBody2D" unique_id=333105150]
 collision_layer = 4
 collision_mask = 3
 motion_mode = 1
 script = ExtResource("1")
+move_speed = 200.0
+iso_y_scale = 0.9
+jump_distance_in_seconds = 2.0
+jump_max_distance = 200.0
+jump_duration = 0.5
+jump_cooldown = 0.0
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=1020844980]
 shape = SubResource("1")
 
-[node name="PlayerVisual" parent="." instance=ExtResource("2")]
+[node name="PlayerVisual" parent="." unique_id=2108398309 instance=ExtResource("2")]
 
-[node name="PlayerInput" type="Node" parent="."]
+[node name="PlayerInput" type="Node" parent="." unique_id=266025858]
 script = ExtResource("3")
