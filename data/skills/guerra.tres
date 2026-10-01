@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="RainSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/rain_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"guerra"
+display_name = "Guerra"
+cooldown = 20.0
+radius = 90.0
+duration = 2.0
+pull_speed = 90.0
+sword_count = 14
+sword_damage = 12
+sword_radius = 22.0
+max_cast_range = 140.0

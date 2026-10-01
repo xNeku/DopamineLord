@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="SpinSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/spin_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"spin_to_win"
+display_name = "Spin to Win"
+cooldown = 8.0
+duration = 2.5
+radius = 48.0
+tick_interval = 0.25
+damage = 6
+turns_per_second = 3.0
+move_speed_mult = 1.0

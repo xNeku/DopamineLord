@@ -20,6 +20,7 @@ var players: Array[Player] = []
 var _local: Player
 var _mobs: MobManager
 var _loot: LootManager
+var _skills: SkillManager
 var _remote_by_peer: Dictionary = {}
 var _state_timer: float = 0.0
 var _debug_timer: float = 0.0
@@ -41,6 +42,12 @@ func _ready() -> void:
 	_loot.name = "LootManager"
 	_loot.players = players
 	add_child(_loot)
+	_skills = SkillManager.new()
+	_skills.name = "SkillManager"
+	_skills.players = players
+	_skills.mobs = _mobs
+	add_child(_skills)
+	_local.skill_requested.connect(_on_local_skill_requested)
 	_mobs.mob_killed.connect(_loot.on_mob_killed)
 	_mobs.player_died.connect(_loot.on_player_died)
 	if Net.bot_mode:
@@ -67,7 +74,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_camera.position = _local.position
-	_hud.text = "Vida: %d/%d  Oro: %d  %s\n%s" % [_local.health, _local.max_health, _local.money, _jump_text(), _network_text()]
+	_hud.text = "Vida: %d/%d  Oro: %d  %s\n%s\n%s" % [_local.health, _local.max_health, _local.money, _jump_text(), _skills_text(), _network_text()]
 
 
 func _physics_process(delta: float) -> void:
@@ -130,6 +137,10 @@ func _on_local_attacked(direction: Vector2) -> void:
 	_mobs.request_attack(_local.position, direction)
 
 
+func _on_local_skill_requested(slot: int, direction: Vector2, target: Vector2) -> void:
+	_skills.request_skill(slot, _local.position, direction, target)
+
+
 func _on_attack_received(peer_id: int, direction: Vector2) -> void:
 	if _remote_by_peer.has(peer_id):
 		_remote_by_peer[peer_id].start_remote_attack(direction)
@@ -146,6 +157,15 @@ func _jump_text() -> String:
 	if _local.jump_cooldown_left > 0.0:
 		return "Salto: recarga %.1f s" % _local.jump_cooldown_left
 	return "Salto: listo"
+
+
+func _skills_text() -> String:
+	var parts := PackedStringArray()
+	for slot in _local.skills.size():
+		var left := _local.skill_cooldown_left[slot]
+		var state := "listo" if left <= 0.0 else "%.1f" % left
+		parts.append("[%d] %s: %s" % [slot + 1, _local.skills[slot].display_name, state])
+	return "  ".join(parts)
 
 
 func _network_text() -> String:

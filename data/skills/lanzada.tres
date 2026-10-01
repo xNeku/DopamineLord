@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="BoomerangSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/boomerang_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"lanzada"
+display_name = "Lanzada"
+cooldown = 6.0
+reach = 170.0
+speed = 300.0
+damage = 14
+radius = 14.0
+radius_per_hit = 5.0
+max_radius = 60.0

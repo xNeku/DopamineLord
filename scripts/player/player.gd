@@ -17,6 +17,8 @@ const REMOTE_SMOOTHING := 15.0
 signal jumped(from: Vector2, to: Vector2)
 ## Se emite al atacar, con la dirección (en el suelo plano). La red y el combate lo reenvían.
 signal attacked(direction: Vector2)
+## Se emite al pedir una skill: hueco (0 a 3), dirección en el suelo plano y punto objetivo.
+signal skill_requested(slot: int, direction: Vector2, target: Vector2)
 
 @export_group("Movimiento")
 ## Velocidad en píxeles de pantalla por segundo (horizontalmente).
@@ -43,6 +45,10 @@ signal attacked(direction: Vector2)
 @export_range(10.0, 360.0) var attack_arc_degrees: float = 140.0
 @export var attack_cooldown: float = 0.4
 
+@export_group("Skills")
+## Las skills de los huecos 1 a 4, por su id (definidas en data/skills/).
+@export var skill_ids: Array[StringName] = [&"melee_boost", &"spin_to_win", &"lanzada", &"guerra"]
+
 ## Orden actual de movimiento: dirección en pantalla, con longitud de 0 a 1.
 var move_order: Vector2 = Vector2.ZERO
 ## Última dirección en la que miró o se movió.
@@ -54,6 +60,17 @@ var health: int = 100
 var is_dead: bool = false
 ## Dinero. Lo decide el host y llega por red.
 var money: int = 0
+
+var skills: Array[SkillData] = []
+var skill_cooldown_left: Array[float] = []
+## Mejoras temporales del ataque básico (Melee Boost).
+var attack_speed_mult: float = 1.0
+var attack_range_mult: float = 1.0
+var buff_time_left: float = 0.0
+## Girando (Spin to Win).
+var is_spinning: bool = false
+var spin_time_left: float = 0.0
+var _spin_data: SpinSkillData
 
 ## Id de red del dueño de este jugador. Si is_remote, lo controla otro jugador por red.
 var peer_id: int = 1
@@ -77,6 +94,9 @@ func setup(id: int, local: bool) -> void:
 	peer_id = id
 	is_remote = not local
 	health = max_health
+	for skill_id in skill_ids:
+		skills.append(GameData.skill(skill_id))
+		skill_cooldown_left.append(0.0)
 	if is_remote:
 		$PlayerInput.free()
 
@@ -124,13 +144,13 @@ func request_jump(direction: Vector2) -> bool:
 ## Orden de atacar hacia `direction` (dirección en el suelo plano). Se puede atacar en el
 ## aire. Devuelve false si está en recarga o muerto. Quien escuche `attacked` resuelve el daño.
 func request_attack(direction: Vector2) -> bool:
-	if is_dead or attack_cooldown_left > 0.0:
+	if is_dead or is_spinning or attack_cooldown_left > 0.0:
 		return false
 	if direction.length_squared() < 0.01:
 		direction = facing
-	attack_cooldown_left = attack_cooldown
+	attack_cooldown_left = attack_cooldown / attack_speed_mult
 	visual.set_facing(direction)
-	visual.play_swing(direction, attack_range, attack_arc_degrees)
+	visual.play_swing(direction, effective_attack_range(), attack_arc_degrees)
 	attacked.emit(direction)
 	return true
 
@@ -138,7 +158,66 @@ func request_attack(direction: Vector2) -> bool:
 ## El dueño de este jugador remoto ha atacado: solo enseñamos el golpe.
 func start_remote_attack(direction: Vector2) -> void:
 	visual.set_facing(direction)
-	visual.play_swing(direction, attack_range, attack_arc_degrees)
+	visual.play_swing(direction, effective_attack_range(), attack_arc_degrees)
+
+
+## Alcance real del golpe, con las mejoras activas.
+func effective_attack_range() -> float:
+	return attack_range * attack_range_mult
+
+
+## Orden de usar la skill del hueco `slot` (0 a 3). La resuelve el host. `direction` va en el
+## suelo plano y `target` es el punto al que apunta. Devuelve false si no puede.
+func request_skill(slot: int, direction: Vector2, target: Vector2) -> bool:
+	if is_dead or slot < 0 or slot >= skills.size() or skill_cooldown_left[slot] > 0.0:
+		return false
+	if direction.length_squared() < 0.01:
+		direction = facing
+	skill_cooldown_left[slot] = skills[slot].cooldown
+	skill_requested.emit(slot, direction, target)
+	return true
+
+
+## Los tres siguientes los dispara el host por red, para todos los jugadores a la vez.
+func apply_buff(data: BuffSkillData) -> void:
+	attack_speed_mult = data.attack_speed_mult
+	attack_range_mult = data.attack_range_mult
+	buff_time_left = data.duration
+	visual.set_buff(true)
+
+
+func start_spin(data: SpinSkillData) -> void:
+	_spin_data = data
+	is_spinning = true
+	spin_time_left = data.duration
+	visual.set_spin(true, data.radius, data.turns_per_second)
+
+
+func stop_spin() -> void:
+	is_spinning = false
+	spin_time_left = 0.0
+	visual.set_spin(false, 0.0, 0.0)
+
+
+func _clear_buff() -> void:
+	attack_speed_mult = 1.0
+	attack_range_mult = 1.0
+	buff_time_left = 0.0
+	visual.set_buff(false)
+
+
+func _tick_timers(delta: float) -> void:
+	attack_cooldown_left = maxf(0.0, attack_cooldown_left - delta)
+	for i in skill_cooldown_left.size():
+		skill_cooldown_left[i] = maxf(0.0, skill_cooldown_left[i] - delta)
+	if buff_time_left > 0.0:
+		buff_time_left -= delta
+		if buff_time_left <= 0.0:
+			_clear_buff()
+	if is_spinning:
+		spin_time_left -= delta
+		if spin_time_left <= 0.0:
+			stop_spin()
 
 
 ## La vida la decide el host y llega por red.
@@ -154,6 +233,8 @@ func set_money(value: int) -> void:
 func die() -> void:
 	is_dead = true
 	is_jumping = false
+	_clear_buff()
+	stop_spin()
 	move_order = Vector2.ZERO
 	visual.set_jump_progress(-1.0)
 	visual.set_walking(0.0)
@@ -189,18 +270,19 @@ func _begin_jump(from: Vector2, to: Vector2, direction: Vector2) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_tick_timers(delta)
 	if is_dead:
 		velocity = Vector2.ZERO
 		return
 	if is_remote:
 		_physics_remote(delta)
 		return
-	attack_cooldown_left = maxf(0.0, attack_cooldown_left - delta)
 	if is_jumping:
 		_update_jump(delta)
 	else:
 		jump_cooldown_left = maxf(0.0, jump_cooldown_left - delta)
-		var motion := move_order * move_speed
+		var speed := move_speed * (_spin_data.move_speed_mult if is_spinning else 1.0)
+		var motion := move_order * speed
 		motion.y *= iso_y_scale
 		velocity = motion
 		move_and_slide()

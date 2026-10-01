@@ -25,6 +25,9 @@ func _physics_process(_delta: float) -> void:
 		_player.request_jump(direction)
 	if Input.is_action_pressed("attack"):
 		_player.request_attack(_aim_direction())
+	for slot in 4:
+		if Input.is_action_just_pressed("skill_%d" % (slot + 1)):
+			_player.request_skill(slot, _aim_direction(), _aim_target())
 
 
 ## Hacia dónde apunta: el stick derecho con mando, o el cursor con ratón. Si no hay nada,
@@ -38,3 +41,11 @@ func _aim_direction() -> Vector2:
 		if offset.length() > 4.0:
 			return Iso.to_ground(offset).normalized()
 	return _player.facing
+
+
+## Punto al que apunta, en pantalla: el cursor con ratón, o con mando un poco por delante en
+## la dirección del stick (o hacia donde mira).
+func _aim_target() -> Vector2:
+	if _use_mouse:
+		return _player.get_global_mouse_position()
+	return _player.position + Iso.to_screen(_aim_direction() * 100.0)

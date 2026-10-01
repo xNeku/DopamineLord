@@ -62,6 +62,14 @@ var _swing_angle: float = 0.0
 var _swing_reach: float = 40.0
 var _swing_arc: float = 2.4
 var _swing_alpha: float = 0.0
+var _mirror: float = 1.0
+var _facing_back: bool = false
+var _spinning: bool = false
+var _spin_angle: float = 0.0
+var _spin_radius: float = 48.0
+var _spin_tps: float = 3.0
+var _buffed: bool = false
+var _dead: bool = false
 
 
 func _ready() -> void:
@@ -73,6 +81,10 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if _spinning:
+		_spin_angle += delta * TAU * _spin_tps
+		_apply_scale_and_head()
+		queue_redraw()
 	if _swing_alpha > 0.0:
 		_swing_alpha = maxf(0.0, _swing_alpha - delta * 7.0)
 		queue_redraw()
@@ -98,8 +110,47 @@ func set_facing(direction: Vector2) -> void:
 	if direction.length_squared() < 0.01:
 		return
 	if absf(direction.x) > 0.01:
-		_pieces.scale.x = -1.0 if direction.x < 0.0 else 1.0
-	_head.texture = head_back_texture if direction.y < 0.0 else head_front_texture
+		_mirror = -1.0 if direction.x < 0.0 else 1.0
+	_facing_back = direction.y < 0.0
+	_apply_scale_and_head()
+
+
+## El personaje gira sobre sí mismo: se estrecha, enseña la espalda y vuelve. Mientras gira
+## dibuja dos aros de cuchillas alrededor de `radius` (en el suelo plano).
+func set_spin(active: bool, radius: float, turns_per_second: float) -> void:
+	_spinning = active
+	_spin_radius = radius
+	_spin_tps = turns_per_second
+	_spin_angle = 0.0
+	_apply_scale_and_head()
+	queue_redraw()
+
+
+## Aura de Melee Boost.
+func set_buff(active: bool) -> void:
+	_buffed = active
+	_refresh_tint()
+
+
+func _apply_scale_and_head() -> void:
+	var turn := 1.0
+	var back := _facing_back
+	if _spinning:
+		var c := cos(_spin_angle)
+		turn = signf(c) * maxf(absf(c), 0.08)
+		if c < 0.0:
+			back = not back
+	_pieces.scale.x = _mirror * turn
+	_head.texture = head_back_texture if back else head_front_texture
+
+
+func _refresh_tint() -> void:
+	if _dead:
+		_body.modulate = Color(0.55, 0.55, 0.55)
+	elif _buffed:
+		_body.modulate = Color(1.35, 1.05, 0.7)
+	else:
+		_body.modulate = Color.WHITE
 
 
 ## `amount` va de 0 (quieto) a 1 (a toda velocidad). Ajusta cuánto se mueven las piezas.
@@ -139,14 +190,23 @@ func play_swing(direction: Vector2, reach: float, arc_degrees: float) -> void:
 
 ## Tumba al personaje (muerto) o lo levanta.
 func set_dead(dead: bool) -> void:
-	_body.rotation = deg_to_rad(90.0) * (-1.0 if _pieces.scale.x < 0.0 else 1.0) if dead else 0.0
-	_body.modulate = Color(0.55, 0.55, 0.55) if dead else Color.WHITE
+	_dead = dead
+	_body.rotation = deg_to_rad(90.0) * _mirror if dead else 0.0
+	_refresh_tint()
 
 
 ## Sombra en el suelo, bajo los pies, y el abanico del golpe si lo hay.
 func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.4) * _shadow_scale)
 	draw_circle(Vector2.ZERO, 13.0, Color(0, 0, 0, 0.3))
+	if _spinning:
+		for height in [0.0, -16.0]:
+			draw_set_transform(Vector2(0, height), 0.0, Vector2(1.0, Iso.Y_SCALE))
+			for k in range(3):
+				var start := _spin_angle * 1.5 + k * TAU / 3.0
+				draw_arc(Vector2.ZERO, _spin_radius, start, start + 1.3, 10, Color(0.85, 0.92, 1.0, 0.85), 3.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, Iso.Y_SCALE))
+		draw_circle(Vector2.ZERO, _spin_radius, Color(0.85, 0.92, 1.0, 0.1))
 	if _swing_alpha > 0.0:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, Iso.Y_SCALE))
 		var points := PackedVector2Array([Vector2.ZERO])

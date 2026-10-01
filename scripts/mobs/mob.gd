@@ -13,6 +13,8 @@ var is_puppet: bool = false
 var windup: bool = false
 var windup_left: float = 0.0
 var attack_cooldown_left: float = 0.0
+## Arrastre de una skill (en pantalla, px/s). Solo el host lo usa.
+var pull_velocity: Vector2 = Vector2.ZERO
 
 var _target_position: Vector2
 var _flash: float = 0.0

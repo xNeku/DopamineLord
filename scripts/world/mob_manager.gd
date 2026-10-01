@@ -46,6 +46,19 @@ func mob_count() -> int:
 	return _mobs.size()
 
 
+func all_mobs() -> Array:
+	return _mobs.values()
+
+
+## Los mobs que tocan un círculo de `ground_radius` (en el suelo plano) alrededor de `center`.
+func mobs_in_circle(center: Vector2, ground_radius: float) -> Array[Mob]:
+	var result: Array[Mob] = []
+	for mob: Mob in _mobs.values():
+		if Iso.to_ground(mob.position - center).length() <= ground_radius + mob.data.radius:
+			result.append(mob)
+	return result
+
+
 ## El jugador local ha atacado. Si somos el host se resuelve aquí; si no, se lo pedimos.
 func request_attack(position: Vector2, direction: Vector2) -> void:
 	if multiplayer.is_server():
@@ -116,13 +129,17 @@ func _think(mob: Mob, delta: float) -> void:
 				_damage_player(target, mob.data.damage)
 	elif distance > mob.data.attack_range:
 		mob.velocity = Iso.to_screen(to_target / distance * mob.data.move_speed)
-		mob.move_and_slide()
 	else:
 		mob.velocity = Vector2.ZERO
 		mob.attack_cooldown_left -= delta
 		if mob.attack_cooldown_left <= 0.0:
 			mob.windup = true
 			mob.windup_left = mob.data.attack_windup
+
+	# Las skills pueden arrastrar al mob mientras hace otra cosa.
+	mob.velocity += mob.pull_velocity
+	if mob.velocity != Vector2.ZERO:
+		mob.move_and_slide()
 
 
 func _nearest_player(from: Vector2) -> Player:
@@ -162,15 +179,16 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 	var half_arc := deg_to_rad(attacker.attack_arc_degrees) * 0.5
 	for mob: Mob in _mobs.values().duplicate():
 		var offset := Iso.to_ground(mob.position - position)
-		var reach := attacker.attack_range + mob.data.radius
+		var reach := attacker.effective_attack_range() + mob.data.radius
 		if offset.length() > reach:
 			continue
 		if offset.length() > mob.data.radius and absf(aim.angle_to(offset)) > half_arc:
 			continue
-		_hit_mob(mob, attacker.attack_damage, peer_id)
+		hit_mob(mob, attacker.attack_damage, peer_id)
 
 
-func _hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
+## Hace daño a un mob (solo el host). Lo usan el ataque básico y las skills.
+func hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
 	var remaining := mob.health - damage
 	_mob_hit.rpc(mob.mob_id, damage, maxi(remaining, 0))
 	if remaining <= 0:
