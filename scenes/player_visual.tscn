@@ -1,0 +1,46 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/player/player_visual.gd" id="1"]
+[ext_resource type="Texture2D" path="res://art/Player_Face.png" id="2"]
+[ext_resource type="Texture2D" path="res://art/Player_Face_back.png" id="3"]
+[ext_resource type="Texture2D" path="res://art/Player_Chest.png" id="4"]
+[ext_resource type="Texture2D" path="res://art/Player_Hands.png" id="5"]
+[ext_resource type="Texture2D" path="res://art/Player_Feet.png" id="6"]
+
+[node name="PlayerVisual" type="Node2D"]
+script = ExtResource("1")
+head_front_texture = ExtResource("2")
+head_back_texture = ExtResource("3")
+
+[node name="Pieces" type="Node2D" parent="."]
+position = Vector2(0, -26)
+
+[node name="FootL" type="Sprite2D" parent="Pieces"]
+position = Vector2(-16, 0)
+texture = ExtResource("6")
+region_enabled = true
+region_rect = Rect2(0, 0, 32, 64)
+
+[node name="FootR" type="Sprite2D" parent="Pieces"]
+position = Vector2(16, 0)
+texture = ExtResource("6")
+region_enabled = true
+region_rect = Rect2(32, 0, 32, 64)
+
+[node name="Chest" type="Sprite2D" parent="Pieces"]
+texture = ExtResource("4")
+
+[node name="HandL" type="Sprite2D" parent="Pieces"]
+position = Vector2(-16, 0)
+texture = ExtResource("5")
+region_enabled = true
+region_rect = Rect2(0, 0, 32, 64)
+
+[node name="HandR" type="Sprite2D" parent="Pieces"]
+position = Vector2(16, 0)
+texture = ExtResource("5")
+region_enabled = true
+region_rect = Rect2(32, 0, 32, 64)
+
+[node name="Head" type="Sprite2D" parent="Pieces"]
+texture = ExtResource("2")

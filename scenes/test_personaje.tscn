@@ -1,0 +1,27 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/test_personaje.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/player_visual.tscn" id="2"]
+
+[node name="TestPersonaje" type="Node2D"]
+script = ExtResource("1")
+
+[node name="Fijo0" parent="." instance=ExtResource("2")]
+position = Vector2(110, 120)
+scale = Vector2(2, 2)
+
+[node name="Fijo1" parent="." instance=ExtResource("2")]
+position = Vector2(250, 120)
+scale = Vector2(2, 2)
+
+[node name="Fijo2" parent="." instance=ExtResource("2")]
+position = Vector2(390, 120)
+scale = Vector2(2, 2)
+
+[node name="Fijo3" parent="." instance=ExtResource("2")]
+position = Vector2(530, 120)
+scale = Vector2(2, 2)
+
+[node name="Jugador" parent="." instance=ExtResource("2")]
+position = Vector2(320, 300)
+scale = Vector2(3, 3)
