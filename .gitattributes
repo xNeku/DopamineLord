@@ -1,0 +1,12 @@
+# Normalizar finales de línea
+* text=auto eol=lf
+
+# Binarios
+*.png binary
+*.jpg binary
+*.webp binary
+*.ogg binary
+*.wav binary
+*.aseprite binary
+*.ase binary
+*.kra binary

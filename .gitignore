@@ -1,0 +1,13 @@
+# Godot 4+
+.godot/
+*.translation
+
+# Exportaciones y credenciales
+export_credentials.cfg
+builds/
+*.apk
+*.aab
+
+# Sistema
+.DS_Store
+Thumbs.db
