@@ -15,6 +15,8 @@ const REMOTE_SMOOTHING := 15.0
 
 ## Se emite al despegar, con el origen y el destino ya recalculados. La red lo reenvía.
 signal jumped(from: Vector2, to: Vector2)
+## Se emite al atacar, con la dirección (en el suelo plano). La red y el combate lo reenvían.
+signal attacked(direction: Vector2)
 
 @export_group("Movimiento")
 ## Velocidad en píxeles de pantalla por segundo (horizontalmente).
@@ -32,12 +34,24 @@ signal jumped(from: Vector2, to: Vector2)
 ## Espera entre un salto y el siguiente, desde que aterrizas.
 @export var jump_cooldown: float = 0.8
 
+@export_group("Combate")
+@export var max_health: int = 100
+@export var attack_damage: int = 10
+## Alcance del golpe en el suelo plano, medido desde el jugador.
+@export var attack_range: float = 40.0
+## Anchura del arco del golpe, en grados.
+@export_range(10.0, 360.0) var attack_arc_degrees: float = 140.0
+@export var attack_cooldown: float = 0.4
+
 ## Orden actual de movimiento: dirección en pantalla, con longitud de 0 a 1.
 var move_order: Vector2 = Vector2.ZERO
 ## Última dirección en la que miró o se movió.
 var facing: Vector2 = Vector2(1, 1)
 var is_jumping: bool = false
 var jump_cooldown_left: float = 0.0
+var attack_cooldown_left: float = 0.0
+var health: int = 100
+var is_dead: bool = false
 
 ## Id de red del dueño de este jugador. Si is_remote, lo controla otro jugador por red.
 var peer_id: int = 1
@@ -60,6 +74,7 @@ var _jump_time: float = 0.0
 func setup(id: int, local: bool) -> void:
 	peer_id = id
 	is_remote = not local
+	health = max_health
 	if is_remote:
 		$PlayerInput.free()
 
@@ -80,6 +95,8 @@ func start_remote_jump(from: Vector2, to: Vector2) -> void:
 
 
 func set_move_order(direction: Vector2) -> void:
+	if is_dead:
+		direction = Vector2.ZERO
 	move_order = direction.limit_length(1.0)
 	if move_order.length_squared() > 0.01:
 		facing = move_order
@@ -88,7 +105,7 @@ func set_move_order(direction: Vector2) -> void:
 ## Orden de saltar hacia `direction` (dirección en pantalla). Devuelve false si no puede:
 ## ya está en el aire, en recarga, o no hay sitio donde aterrizar.
 func request_jump(direction: Vector2) -> bool:
-	if is_jumping or jump_cooldown_left > 0.0:
+	if is_dead or is_jumping or jump_cooldown_left > 0.0:
 		return false
 	if direction.length_squared() < 0.01:
 		direction = facing
@@ -102,6 +119,61 @@ func request_jump(direction: Vector2) -> bool:
 	return true
 
 
+## Orden de atacar hacia `direction` (dirección en el suelo plano). Se puede atacar en el
+## aire. Devuelve false si está en recarga o muerto. Quien escuche `attacked` resuelve el daño.
+func request_attack(direction: Vector2) -> bool:
+	if is_dead or attack_cooldown_left > 0.0:
+		return false
+	if direction.length_squared() < 0.01:
+		direction = facing
+	attack_cooldown_left = attack_cooldown
+	visual.set_facing(direction)
+	visual.play_swing(direction, attack_range, attack_arc_degrees)
+	attacked.emit(direction)
+	return true
+
+
+## El dueño de este jugador remoto ha atacado: solo enseñamos el golpe.
+func start_remote_attack(direction: Vector2) -> void:
+	visual.set_facing(direction)
+	visual.play_swing(direction, attack_range, attack_arc_degrees)
+
+
+## La vida la decide el host y llega por red.
+func set_health(value: int) -> void:
+	health = clampi(value, 0, max_health)
+	queue_redraw()
+
+
+func die() -> void:
+	is_dead = true
+	is_jumping = false
+	move_order = Vector2.ZERO
+	visual.set_jump_progress(-1.0)
+	visual.set_walking(0.0)
+	visual.set_dead(true)
+	queue_redraw()
+
+
+func respawn(spot: Vector2) -> void:
+	is_dead = false
+	health = max_health
+	position = spot
+	_net_position = spot
+	visual.set_dead(false)
+	queue_redraw()
+
+
+func _draw() -> void:
+	if is_dead:
+		return
+	var bar := Vector2(26, 3)
+	var top := Vector2(-bar.x * 0.5, -72.0)
+	draw_rect(Rect2(top, bar), Color(0, 0, 0, 0.6))
+	var ratio := float(health) / max_health
+	draw_rect(Rect2(top, Vector2(bar.x * ratio, bar.y)), Color(0.3, 0.85, 0.35))
+
+
 func _begin_jump(from: Vector2, to: Vector2, direction: Vector2) -> void:
 	_jump_from = from
 	_jump_to = to
@@ -111,9 +183,13 @@ func _begin_jump(from: Vector2, to: Vector2, direction: Vector2) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if is_dead:
+		velocity = Vector2.ZERO
+		return
 	if is_remote:
 		_physics_remote(delta)
 		return
+	attack_cooldown_left = maxf(0.0, attack_cooldown_left - delta)
 	if is_jumping:
 		_update_jump(delta)
 	else:

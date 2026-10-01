@@ -14,6 +14,7 @@ signal connection_failed
 signal disconnected
 signal state_received(peer_id: int, position: Vector2, facing: Vector2, walking: float)
 signal jump_received(peer_id: int, from: Vector2, to: Vector2)
+signal attack_received(peer_id: int, direction: Vector2)
 
 const DEFAULT_PORT := 7777
 const MAX_PLAYERS := 4
@@ -83,6 +84,13 @@ func send_jump(from: Vector2, to: Vector2) -> void:
 		_receive_jump.rpc(from, to)
 
 
+## Avisa a los demás de que este jugador ha atacado, para que vean el golpe. El daño no
+## va por aquí: lo resuelve el host.
+func send_attack(direction: Vector2) -> void:
+	if is_online and not multiplayer.get_peers().is_empty():
+		_receive_attack.rpc(direction)
+
+
 @rpc("any_peer", "unreliable_ordered")
 func _receive_state(position: Vector2, facing: Vector2, walking: float) -> void:
 	state_received.emit(multiplayer.get_remote_sender_id(), position, facing, walking)
@@ -91,3 +99,8 @@ func _receive_state(position: Vector2, facing: Vector2, walking: float) -> void:
 @rpc("any_peer", "reliable")
 func _receive_jump(from: Vector2, to: Vector2) -> void:
 	jump_received.emit(multiplayer.get_remote_sender_id(), from, to)
+
+
+@rpc("any_peer", "reliable")
+func _receive_attack(direction: Vector2) -> void:
+	attack_received.emit(multiplayer.get_remote_sender_id(), direction)

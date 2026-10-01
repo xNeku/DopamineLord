@@ -17,6 +17,7 @@ func _physics_process(delta: float) -> void:
 	_time += delta
 	var direction := ROUTE[int(_time / LEG_SECONDS) % ROUTE.size()]
 	_player.set_move_order(direction)
+	_player.request_attack(direction)
 	if _time >= _next_jump:
 		_next_jump += JUMP_EVERY
 		_player.request_jump(direction)

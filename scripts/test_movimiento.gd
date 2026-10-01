@@ -18,6 +18,7 @@ const STATE_INTERVAL := 0.05
 var players: Array[Player] = []
 
 var _local: Player
+var _mobs: MobManager
 var _remote_by_peer: Dictionary = {}
 var _state_timer: float = 0.0
 var _debug_timer: float = 0.0
@@ -28,7 +29,13 @@ func _ready() -> void:
 	_local.setup(multiplayer.get_unique_id(), true)
 	_local.position = _spawn_point()
 	_local.jumped.connect(Net.send_jump)
+	_local.attacked.connect(_on_local_attacked)
 	players.append(_local)
+	_mobs = MobManager.new()
+	_mobs.name = "MobManager"
+	_mobs.players = players
+	_mobs.spawn_point = _local.position
+	add_child(_mobs)
 	if Net.bot_mode:
 		_local.get_node("PlayerInput").free()
 		var bot := BotInput.new()
@@ -40,6 +47,7 @@ func _ready() -> void:
 	Net.peer_left.connect(_remove_remote)
 	Net.state_received.connect(_on_state_received)
 	Net.jump_received.connect(_on_jump_received)
+	Net.attack_received.connect(_on_attack_received)
 	Net.disconnected.connect(_back_to_menu)
 
 	# Pared: capa 1 (mundo). Cuerpos: capa 2.
@@ -52,7 +60,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_camera.position = _local.position
-	_hud.text = _jump_text() + "\n" + _network_text()
+	_hud.text = "Vida: %d/%d  %s\n%s" % [_local.health, _local.max_health, _jump_text(), _network_text()]
 
 
 func _physics_process(delta: float) -> void:
@@ -110,6 +118,16 @@ func _on_jump_received(peer_id: int, from: Vector2, to: Vector2) -> void:
 		_remote_by_peer[peer_id].start_remote_jump(from, to)
 
 
+func _on_local_attacked(direction: Vector2) -> void:
+	Net.send_attack(direction)
+	_mobs.request_attack(_local.position, direction)
+
+
+func _on_attack_received(peer_id: int, direction: Vector2) -> void:
+	if _remote_by_peer.has(peer_id):
+		_remote_by_peer[peer_id].start_remote_attack(direction)
+
+
 func _back_to_menu() -> void:
 	Net.leave()
 	get_tree().change_scene_to_file(MENU_SCENE)
@@ -132,7 +150,7 @@ func _network_text() -> String:
 
 
 func _print_debug() -> void:
-	var line := "[red] yo=%d jugadores=%d local=%s" % [multiplayer.get_unique_id(), Net.player_count(), _local.position.round()]
+	var line := "[red] yo=%d jugadores=%d vida=%d mobs=%d golpes=%d muertes=%d daño_recibido=%d local=%s" % [multiplayer.get_unique_id(), Net.player_count(), _local.health, _mobs.mob_count(), _mobs.stats["hits"], _mobs.stats["kills"], _mobs.stats["damage_taken"], _local.position.round()]
 	for peer_id in _remote_by_peer:
 		var remote: Player = _remote_by_peer[peer_id]
 		line += " | %d=%s%s" % [peer_id, remote.position.round(), " (salta)" if remote.is_jumping else ""]

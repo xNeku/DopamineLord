@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="MobData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/mob_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"blob"
+display_name = "Blob"
+max_health = 30
+move_speed = 55.0
+damage = 5
+attack_range = 22.0
+attack_windup = 0.45
+attack_cooldown = 1.2
+radius = 7.0
+color = Color(0.75, 0.25, 0.25, 1)

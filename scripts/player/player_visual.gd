@@ -58,6 +58,10 @@ var _walk_target: float = 0.0
 var _base: Dictionary = {}
 ## Tamaño de la sombra (1 = en el suelo, menos = en el aire).
 var _shadow_scale: float = 1.0
+var _swing_angle: float = 0.0
+var _swing_reach: float = 40.0
+var _swing_arc: float = 2.4
+var _swing_alpha: float = 0.0
 
 
 func _ready() -> void:
@@ -69,6 +73,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if _swing_alpha > 0.0:
+		_swing_alpha = maxf(0.0, _swing_alpha - delta * 7.0)
+		queue_redraw()
 	_walk = move_toward(_walk, _walk_target, walk_blend_speed * delta)
 	_idle_time += delta * idle_speed * TAU
 	_walk_time += delta * walk_cycles_per_second * TAU * _walk
@@ -120,10 +127,33 @@ func set_jump_progress(progress: float) -> void:
 	queue_redraw()
 
 
-## Sombra en el suelo, bajo los pies.
+## Enseña el golpe: un abanico en el suelo hacia `direction` (dirección en el suelo plano)
+## que se desvanece rápido. Provisional hasta que haya arte del arma.
+func play_swing(direction: Vector2, reach: float, arc_degrees: float) -> void:
+	_swing_angle = direction.angle()
+	_swing_reach = reach
+	_swing_arc = deg_to_rad(arc_degrees)
+	_swing_alpha = 1.0
+	queue_redraw()
+
+
+## Tumba al personaje (muerto) o lo levanta.
+func set_dead(dead: bool) -> void:
+	_body.rotation = deg_to_rad(90.0) * (-1.0 if _pieces.scale.x < 0.0 else 1.0) if dead else 0.0
+	_body.modulate = Color(0.55, 0.55, 0.55) if dead else Color.WHITE
+
+
+## Sombra en el suelo, bajo los pies, y el abanico del golpe si lo hay.
 func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.4) * _shadow_scale)
 	draw_circle(Vector2.ZERO, 13.0, Color(0, 0, 0, 0.3))
+	if _swing_alpha > 0.0:
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, Iso.Y_SCALE))
+		var points := PackedVector2Array([Vector2.ZERO])
+		for i in range(13):
+			var angle := _swing_angle - _swing_arc * 0.5 + _swing_arc * i / 12.0
+			points.append(Vector2.from_angle(angle) * _swing_reach)
+		draw_colored_polygon(points, Color(1, 1, 1, 0.35 * _swing_alpha))
 
 
 func _place(piece: Sprite2D, y_offset: float) -> void:
