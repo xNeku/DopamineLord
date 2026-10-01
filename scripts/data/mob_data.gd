@@ -17,3 +17,8 @@ extends Resource
 @export var radius: float = 7.0
 ## Color del programmer art. Cuando haya sprite, se añade aquí su ruta.
 @export var color: Color = Color(0.75, 0.25, 0.25)
+
+@export_group("Drops")
+## Dinero que suelta al morir, entre el mínimo y el máximo. Con máximo 0 no suelta.
+@export var drop_money_min: int = 1
+@export var drop_money_max: int = 3

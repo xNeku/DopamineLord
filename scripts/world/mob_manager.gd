@@ -9,6 +9,11 @@ extends Node
 
 const MOB_SCENE := preload("res://scenes/mob.tscn")
 
+## Solo en el host: un mob ha muerto, con su tipo, su posición y quién lo mató.
+signal mob_killed(kind: StringName, position: Vector2, killer_peer: int)
+## Solo en el host: un jugador ha muerto.
+signal player_died(peer_id: int)
+
 @export var mob_to_spawn: StringName = &"blob"
 @export var max_mobs: int = 8
 @export var spawn_interval: float = 2.0
@@ -162,14 +167,17 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 			continue
 		if offset.length() > mob.data.radius and absf(aim.angle_to(offset)) > half_arc:
 			continue
-		_hit_mob(mob, attacker.attack_damage)
+		_hit_mob(mob, attacker.attack_damage, peer_id)
 
 
-func _hit_mob(mob: Mob, damage: int) -> void:
+func _hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
 	var remaining := mob.health - damage
 	_mob_hit.rpc(mob.mob_id, damage, maxi(remaining, 0))
 	if remaining <= 0:
+		var kind := mob.data.id
+		var spot := mob.position
 		_mob_died.rpc(mob.mob_id)
+		mob_killed.emit(kind, spot, attacker_peer)
 
 
 func _damage_player(target: Player, amount: int) -> void:
@@ -178,6 +186,7 @@ func _damage_player(target: Player, amount: int) -> void:
 	_player_health.rpc(target.peer_id, remaining, amount)
 	if remaining <= 0:
 		_player_died.rpc(target.peer_id)
+		player_died.emit(target.peer_id)
 		var peer_id := target.peer_id
 		get_tree().create_timer(respawn_seconds).timeout.connect(
 			func() -> void: _player_respawn.rpc(peer_id, spawn_point)

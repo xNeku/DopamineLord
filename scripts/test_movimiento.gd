@@ -19,6 +19,7 @@ var players: Array[Player] = []
 
 var _local: Player
 var _mobs: MobManager
+var _loot: LootManager
 var _remote_by_peer: Dictionary = {}
 var _state_timer: float = 0.0
 var _debug_timer: float = 0.0
@@ -36,6 +37,12 @@ func _ready() -> void:
 	_mobs.players = players
 	_mobs.spawn_point = _local.position
 	add_child(_mobs)
+	_loot = LootManager.new()
+	_loot.name = "LootManager"
+	_loot.players = players
+	add_child(_loot)
+	_mobs.mob_killed.connect(_loot.on_mob_killed)
+	_mobs.player_died.connect(_loot.on_player_died)
 	if Net.bot_mode:
 		_local.get_node("PlayerInput").free()
 		var bot := BotInput.new()
@@ -60,7 +67,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_camera.position = _local.position
-	_hud.text = "Vida: %d/%d  %s\n%s" % [_local.health, _local.max_health, _jump_text(), _network_text()]
+	_hud.text = "Vida: %d/%d  Oro: %d  %s\n%s" % [_local.health, _local.max_health, _local.money, _jump_text(), _network_text()]
 
 
 func _physics_process(delta: float) -> void:
@@ -150,7 +157,7 @@ func _network_text() -> String:
 
 
 func _print_debug() -> void:
-	var line := "[red] yo=%d jugadores=%d vida=%d mobs=%d golpes=%d muertes=%d daño_recibido=%d local=%s" % [multiplayer.get_unique_id(), Net.player_count(), _local.health, _mobs.mob_count(), _mobs.stats["hits"], _mobs.stats["kills"], _mobs.stats["damage_taken"], _local.position.round()]
+	var line := "[red] yo=%d jugadores=%d vida=%d mobs=%d golpes=%d muertes=%d daño_recibido=%d oro=%d drops=%d local=%s" % [multiplayer.get_unique_id(), Net.player_count(), _local.health, _mobs.mob_count(), _mobs.stats["hits"], _mobs.stats["kills"], _mobs.stats["damage_taken"], _local.money, _loot.drop_count(), _local.position.round()]
 	for peer_id in _remote_by_peer:
 		var remote: Player = _remote_by_peer[peer_id]
 		line += " | %d=%s%s" % [peer_id, remote.position.round(), " (salta)" if remote.is_jumping else ""]

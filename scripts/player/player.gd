@@ -52,6 +52,8 @@ var jump_cooldown_left: float = 0.0
 var attack_cooldown_left: float = 0.0
 var health: int = 100
 var is_dead: bool = false
+## Dinero. Lo decide el host y llega por red.
+var money: int = 0
 
 ## Id de red del dueño de este jugador. Si is_remote, lo controla otro jugador por red.
 var peer_id: int = 1
@@ -143,6 +145,10 @@ func start_remote_attack(direction: Vector2) -> void:
 func set_health(value: int) -> void:
 	health = clampi(value, 0, max_health)
 	queue_redraw()
+
+
+func set_money(value: int) -> void:
+	money = maxi(value, 0)
 
 
 func die() -> void:
