@@ -6,7 +6,7 @@
 script = ExtResource("1")
 id = &"spin_to_win"
 display_name = "Spin to Win"
-cooldown = 8.0
+cooldown = 2.0
 duration = 2.5
 radius = 48.0
 tick_interval = 0.25

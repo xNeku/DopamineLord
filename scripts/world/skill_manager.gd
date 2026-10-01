@@ -68,7 +68,7 @@ func _execute(peer_id: int, slot: int, position: Vector2, direction: Vector2, ta
 		_boomerang_spawn.rpc(id, peer_id, skill.id, position, aim)
 		_boomerangs[id] = {
 			"peer": peer_id, "data": skill, "position": position, "direction": aim,
-			"out": true, "traveled": 0.0, "hits": {}, "hit_count": 0,
+			"out": true, "traveled": 0.0, "reach": skill.reach, "hits": {}, "hit_count": 0,
 			"radius": skill.radius, "age": 0.0,
 		}
 	elif skill is RainSkillData:
@@ -110,7 +110,7 @@ func _tick_boomerangs(delta: float) -> void:
 		if state["out"]:
 			state["position"] += Iso.to_screen(state["direction"] * step)
 			state["traveled"] += step
-			if state["traveled"] >= data.reach:
+			if state["traveled"] >= state["reach"]:
 				state["out"] = false
 				state["hits"].clear()
 		elif caster != null:
@@ -129,6 +129,8 @@ func _tick_boomerangs(delta: float) -> void:
 				continue
 			state["hits"][mob.mob_id] = true
 			state["hit_count"] += 1
+			if state["out"]:
+				state["reach"] = minf(data.reach + data.reach_per_hit * state["hit_count"], data.max_reach)
 			state["radius"] = minf(data.radius + data.radius_per_hit * state["hit_count"], data.max_radius)
 			mobs.hit_mob(mob, data.damage, state["peer"])
 		var node: BoomerangProjectile = _nodes.get(id)

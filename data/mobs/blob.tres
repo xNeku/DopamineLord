@@ -14,5 +14,11 @@ attack_windup = 0.45
 attack_cooldown = 1.2
 radius = 7.0
 color = Color(0.75, 0.25, 0.25, 1)
+ai = 0
+spawn_weight = 10.0
+group_min = 3
+group_max = 6
+max_alive = 0
+
 drop_money_min = 1
 drop_money_max = 3

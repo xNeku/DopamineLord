@@ -4,6 +4,9 @@ extends SkillData
 
 ## Distancia que recorre antes de dar la vuelta, en el suelo plano.
 @export var reach: float = 170.0
+## Lo que se alarga el recorrido con cada enemigo golpeado antes de dar la vuelta.
+@export var reach_per_hit: float = 35.0
+@export var max_reach: float = 420.0
 @export var speed: float = 300.0
 @export var damage: int = 14
 ## Radio de golpeo al lanzarla.

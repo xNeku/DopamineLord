@@ -12,6 +12,8 @@ const LAYER_BODIES := 2
 const LANDING_STEP := 4.0
 ## Con qué rapidez un jugador remoto alcanza la posición que nos llega por red.
 const REMOTE_SMOOTHING := 15.0
+## Lo que dura el empujón de un golpe fuerte, durante el cual no controlas al personaje.
+const KNOCKBACK_TIME := 0.25
 
 ## Se emite al despegar, con el origen y el destino ya recalculados. La red lo reenvía.
 signal jumped(from: Vector2, to: Vector2)
@@ -80,6 +82,11 @@ var _net_position: Vector2
 var _net_facing: Vector2 = Vector2(1, 1)
 var _net_walking: float = 0.0
 var _net_received: bool = false
+
+var is_knocked_back: bool = false
+var _kb_from: Vector2
+var _kb_to: Vector2
+var _kb_time: float = 0.0
 
 var _jump_from: Vector2
 var _jump_to: Vector2
@@ -199,6 +206,20 @@ func stop_spin() -> void:
 	visual.set_spin(false, 0.0, 0.0)
 
 
+## Te lanzan `ground_offset` (en el suelo plano). Se acorta si hay una pared o un cuerpo.
+## Corta el salto y quita el control un momento.
+func apply_knockback(ground_offset: Vector2) -> void:
+	if is_dead:
+		return
+	if is_jumping:
+		is_jumping = false
+		visual.set_jump_progress(-1.0)
+	_kb_from = position
+	_kb_to = _resolve_landing(position, position + Iso.to_screen(ground_offset))
+	_kb_time = 0.0
+	is_knocked_back = true
+
+
 func _clear_buff() -> void:
 	attack_speed_mult = 1.0
 	attack_range_mult = 1.0
@@ -276,6 +297,14 @@ func _physics_process(delta: float) -> void:
 		return
 	if is_remote:
 		_physics_remote(delta)
+		return
+	if is_knocked_back:
+		_kb_time += delta
+		var t := clampf(_kb_time / KNOCKBACK_TIME, 0.0, 1.0)
+		position = _kb_from.lerp(_kb_to, 1.0 - (1.0 - t) * (1.0 - t))
+		visual.set_walking(0.0)
+		if t >= 1.0:
+			is_knocked_back = false
 		return
 	if is_jumping:
 		_update_jump(delta)

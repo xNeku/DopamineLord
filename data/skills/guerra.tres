@@ -6,7 +6,7 @@
 script = ExtResource("1")
 id = &"guerra"
 display_name = "Guerra"
-cooldown = 20.0
+cooldown = 2.0
 radius = 90.0
 duration = 2.0
 pull_speed = 90.0

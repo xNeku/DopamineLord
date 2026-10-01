@@ -6,10 +6,12 @@
 script = ExtResource("1")
 id = &"lanzada"
 display_name = "Lanzada"
-cooldown = 6.0
+cooldown = 2.0
 reach = 170.0
 speed = 300.0
 damage = 14
 radius = 14.0
 radius_per_hit = 5.0
 max_radius = 60.0
+reach_per_hit = 35.0
+max_reach = 420.0

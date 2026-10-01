@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="MobData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/mob_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"brute"
+display_name = "Bruto"
+max_health = 120
+move_speed = 40.0
+damage = 14
+attack_range = 30.0
+attack_windup = 0.65
+attack_cooldown = 1.6
+radius = 12.0
+color = Color(0.45, 0.25, 0.6, 1)
+ai = 0
+spawn_weight = 3.0
+group_min = 1
+group_max = 2
+max_alive = 0
+
+drop_money_min = 8
+drop_money_max = 15

@@ -14,12 +14,16 @@ signal mob_killed(kind: StringName, position: Vector2, killer_peer: int)
 ## Solo en el host: un jugador ha muerto.
 signal player_died(peer_id: int)
 
-@export var mob_to_spawn: StringName = &"blob"
-@export var max_mobs: int = 8
-@export var spawn_interval: float = 2.0
-## Distancia (en el suelo plano) a la que aparecen respecto a un jugador.
-@export var spawn_distance_min: float = 160.0
-@export var spawn_distance_max: float = 240.0
+## Qué mobs hacen aparecer, por su id. Cada uno trae su peso, tamaño de grupo y máximo.
+@export var mob_table: Array[StringName] = [&"blob", &"archer", &"brute", &"elite"]
+@export var max_mobs: int = 40
+## Cada cuántos segundos llega un grupo nuevo, si no se ha llegado al máximo.
+@export var spawn_interval: float = 2.5
+## Mitad del tamaño de lo que se ve en pantalla, en píxeles. Los mobs aparecen más allá, fuera
+## de la vista, y vienen hacia el jugador.
+@export var spawn_view_half: Vector2 = Vector2(340, 200)
+## Distancia (en el suelo plano) a la que un mob que se ha quedado atrás desaparece.
+@export var despawn_distance: float = 900.0
 @export var snapshot_interval: float = 0.1
 @export var respawn_seconds: float = 3.0
 
@@ -32,6 +36,8 @@ var stats: Dictionary = {"hits": 0, "kills": 0, "damage_taken": 0}
 var _mobs: Dictionary = {}
 var _next_id: int = 1
 var _spawn_timer: float = 0.0
+var _despawn_timer: float = 0.0
+var _projectiles: Dictionary = {}
 var _snapshot_timer: float = 0.0
 var _probe := CircleShape2D.new()
 
@@ -75,8 +81,13 @@ func _physics_process(delta: float) -> void:
 		_spawn_timer = 0.0
 		if _mobs.size() < max_mobs:
 			_try_spawn()
+	_despawn_timer += delta
+	if _despawn_timer >= 1.0:
+		_despawn_timer = 0.0
+		_despawn_far_mobs()
 	for mob: Mob in _mobs.values():
 		_think(mob, delta)
+	_check_projectiles()
 	_snapshot_timer += delta
 	if _snapshot_timer >= snapshot_interval:
 		_snapshot_timer = 0.0
@@ -92,14 +103,65 @@ func _try_spawn() -> void:
 			alive.append(player)
 	if alive.is_empty():
 		return
-	var anchor: Player = alive.pick_random()
-	var ground := Vector2.from_angle(randf() * TAU) * randf_range(spawn_distance_min, spawn_distance_max)
-	var spot := anchor.position + Iso.to_screen(ground)
-	if _blocked(spot):
+	var kind := _pick_kind()
+	if kind == &"":
 		return
-	var id := _next_id
-	_next_id += 1
-	_spawn_mob.rpc(id, mob_to_spawn, spot)
+	var data := GameData.mob(kind)
+	var anchor: Player = alive.pick_random()
+	# Fuera de la vista: el radio mínimo para que esté más allá del borde de la pantalla.
+	var direction := Vector2.from_angle(randf() * TAU)
+	var out_x := spawn_view_half.x / maxf(absf(direction.x), 0.001)
+	var out_y := spawn_view_half.y / maxf(absf(direction.y) * Iso.Y_SCALE, 0.001)
+	var center := anchor.position + Iso.to_screen(direction * (minf(out_x, out_y) + randf_range(30.0, 90.0)))
+	var count := mini(randi_range(data.group_min, data.group_max), max_mobs - _mobs.size())
+	if data.max_alive > 0:
+		count = mini(count, data.max_alive - _alive_of(kind))
+	for i in count:
+		var spot := center + Iso.to_screen(Vector2.from_angle(randf() * TAU) * randf_range(0.0, 28.0))
+		if _blocked(spot):
+			continue
+		var id := _next_id
+		_next_id += 1
+		_spawn_mob.rpc(id, kind, spot)
+
+
+## Elige qué mob toca, según el peso de cada uno y respetando su máximo.
+func _pick_kind() -> StringName:
+	var total := 0.0
+	for kind in mob_table:
+		var data := GameData.mob(kind)
+		if data.max_alive == 0 or _alive_of(kind) < data.max_alive:
+			total += data.spawn_weight
+	if total <= 0.0:
+		return &""
+	var roll := randf() * total
+	for kind in mob_table:
+		var data := GameData.mob(kind)
+		if data.max_alive > 0 and _alive_of(kind) >= data.max_alive:
+			continue
+		roll -= data.spawn_weight
+		if roll <= 0.0:
+			return kind
+	return mob_table[0]
+
+
+func _alive_of(kind: StringName) -> int:
+	var count := 0
+	for mob: Mob in _mobs.values():
+		if mob.data.id == kind:
+			count += 1
+	return count
+
+
+## Los mobs que se han quedado muy lejos de todos los jugadores desaparecen, para no
+## acumular y que sigan llegando de nuevos.
+func _despawn_far_mobs() -> void:
+	for mob: Mob in _mobs.values().duplicate():
+		var nearest := _nearest_player(mob.position)
+		if nearest == null:
+			continue
+		if Iso.to_ground(nearest.position - mob.position).length() > despawn_distance:
+			_mob_despawn.rpc(mob.mob_id)
 
 
 func _blocked(spot: Vector2) -> bool:
@@ -111,6 +173,8 @@ func _blocked(spot: Vector2) -> bool:
 
 
 func _think(mob: Mob, delta: float) -> void:
+	if mob.is_leaping():
+		return
 	var target := _nearest_player(mob.position)
 	if target == null:
 		mob.velocity = Vector2.ZERO
@@ -118,6 +182,22 @@ func _think(mob: Mob, delta: float) -> void:
 		return
 	var to_target := Iso.to_ground(target.position - mob.position)
 	var distance := to_target.length()
+	mob.leap_cooldown_left -= delta
+
+	if mob.data.ai == MobData.Ai.RANGED:
+		_think_ranged(mob, target, to_target, distance, delta)
+	else:
+		if mob.data.ai == MobData.Ai.LEAPER and _try_leap(mob, target, distance):
+			return
+		_think_melee(mob, target, to_target, distance, delta)
+
+	# Las skills pueden arrastrar al mob mientras hace otra cosa.
+	mob.velocity += mob.pull_velocity
+	if mob.velocity != Vector2.ZERO:
+		mob.move_and_slide()
+
+
+func _think_melee(mob: Mob, target: Player, to_target: Vector2, distance: float, delta: float) -> void:
 	if mob.windup:
 		mob.velocity = Vector2.ZERO
 		mob.windup_left -= delta
@@ -136,10 +216,89 @@ func _think(mob: Mob, delta: float) -> void:
 			mob.windup = true
 			mob.windup_left = mob.data.attack_windup
 
-	# Las skills pueden arrastrar al mob mientras hace otra cosa.
-	mob.velocity += mob.pull_velocity
-	if mob.velocity != Vector2.ZERO:
-		mob.move_and_slide()
+
+func _think_ranged(mob: Mob, target: Player, to_target: Vector2, distance: float, delta: float) -> void:
+	mob.attack_cooldown_left -= delta
+	if mob.windup:
+		mob.velocity = Vector2.ZERO
+		mob.windup_left -= delta
+		if mob.windup_left <= 0.0:
+			mob.windup = false
+			mob.attack_cooldown_left = mob.data.attack_cooldown
+			_fire_projectile(mob, target)
+		return
+	var heading := to_target / maxf(distance, 0.001)
+	if distance > mob.data.preferred_distance + 15.0:
+		mob.velocity = Iso.to_screen(heading * mob.data.move_speed)
+	elif distance < mob.data.preferred_distance - 25.0:
+		mob.velocity = Iso.to_screen(-heading * mob.data.move_speed)
+	else:
+		mob.velocity = Vector2.ZERO
+	if mob.attack_cooldown_left <= 0.0 and distance <= mob.data.attack_range:
+		mob.windup = true
+		mob.windup_left = mob.data.attack_windup
+
+
+func _fire_projectile(mob: Mob, target: Player) -> void:
+	var heading := Iso.to_ground(target.position - mob.position).normalized()
+	var velocity := Iso.to_screen(heading * mob.data.projectile_speed)
+	var id := _next_id
+	_next_id += 1
+	_spawn_projectile.rpc(id, mob.position + Vector2(0, -8), velocity, mob.data.projectile_radius, mob.data.damage, mob.data.projectile_lifetime)
+
+
+## Si toca, el mob grande avisa y salta sobre el jugador. Devuelve true si empieza el salto.
+func _try_leap(mob: Mob, target: Player, distance: float) -> bool:
+	var data := mob.data
+	if mob.leap_cooldown_left > 0.0 or mob.windup:
+		return false
+	if distance < data.leap_min_distance or distance > data.leap_max_distance:
+		return false
+	mob.leap_cooldown_left = data.leap_cooldown
+	mob.velocity = Vector2.ZERO
+	_mob_leap.rpc(mob.mob_id, mob.position, target.position, data.leap_windup, data.leap_duration)
+	return true
+
+
+## El mob grande ha aterrizado: daña a los jugadores del área y los lanza hacia fuera.
+func _on_leap_landed(mob: Mob) -> void:
+	var data := mob.data
+	for player in players:
+		if player.is_dead:
+			continue
+		var offset := Iso.to_ground(player.position - mob.position)
+		if offset.length() > data.leap_radius + 8.0:
+			continue
+		_damage_player(player, data.leap_damage)
+		var away := offset if offset.length() > 1.0 else Vector2.from_angle(randf() * TAU)
+		var kick := away.normalized() * (data.leap_radius + 18.0) - offset
+		_player_knockback.rpc(player.peer_id, kick)
+
+
+func _check_projectiles() -> void:
+	for id in _projectiles.keys():
+		var raw: Variant = _projectiles[id]
+		if not is_instance_valid(raw):
+			_projectiles.erase(id)
+			continue
+		var node: Projectile = raw
+		if _blocked_by_wall(node.position):
+			_projectile_end.rpc(id)
+			continue
+		for player in players:
+			if player.is_dead:
+				continue
+			if Iso.to_ground(player.position - node.position + Vector2(0, -8)).length() <= node.radius + 8.0:
+				_damage_player(player, node.damage)
+				_projectile_end.rpc(id)
+				break
+
+
+func _blocked_by_wall(spot: Vector2) -> bool:
+	var query := PhysicsPointQueryParameters2D.new()
+	query.position = spot
+	query.collision_mask = 1
+	return not get_viewport().world_2d.direct_space_state.intersect_point(query, 1).is_empty()
 
 
 func _nearest_player(from: Vector2) -> Player:
@@ -280,6 +439,48 @@ func _player_respawn(peer_id: int, spot: Vector2) -> void:
 		player.respawn(spot)
 
 
+@rpc("authority", "call_local", "reliable")
+func _mob_leap(id: int, from: Vector2, to: Vector2, windup_time: float, duration: float) -> void:
+	var mob: Mob = _mobs.get(id)
+	if mob == null:
+		return
+	mob.start_leap(from, to, windup_time, duration)
+	GroundWarning.spawn(self, to, mob.data.leap_radius, windup_time + duration)
+
+
+@rpc("authority", "call_local", "reliable")
+func _mob_despawn(id: int) -> void:
+	var mob: Mob = _mobs.get(id)
+	if mob != null:
+		_mobs.erase(id)
+		mob.queue_free()
+
+
+@rpc("authority", "call_local", "reliable")
+func _spawn_projectile(id: int, origin: Vector2, velocity: Vector2, radius: float, damage: int, lifetime: float) -> void:
+	var projectile := Projectile.new()
+	projectile.setup(origin, velocity, radius, damage, lifetime)
+	add_child(projectile)
+	_projectiles[id] = projectile
+
+
+@rpc("authority", "call_local", "reliable")
+func _projectile_end(id: int) -> void:
+	var raw: Variant = _projectiles.get(id)
+	_projectiles.erase(id)
+	if is_instance_valid(raw):
+		raw.queue_free()
+
+
+## Un golpe fuerte te lanza. Lo aplica el dueño del jugador; en los demás se ve por su
+## movimiento normal.
+@rpc("authority", "call_local", "reliable")
+func _player_knockback(peer_id: int, ground_offset: Vector2) -> void:
+	var player := _player_by_peer(peer_id)
+	if player != null and not player.is_remote:
+		player.apply_knockback(ground_offset)
+
+
 # --- Mensajes: de un cliente al host ---------------------------------------------------
 
 @rpc("any_peer", "reliable")
@@ -331,3 +532,5 @@ func _create_mob(id: int, kind: StringName, spot: Vector2, health: int) -> void:
 		mob.health = health
 	add_child(mob)
 	_mobs[id] = mob
+	if multiplayer.is_server():
+		mob.leap_landed.connect(_on_leap_landed)

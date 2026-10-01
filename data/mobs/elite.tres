@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="MobData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/mob_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"elite"
+display_name = "Coloso"
+max_health = 400
+move_speed = 35.0
+damage = 25
+attack_range = 44.0
+attack_windup = 0.8
+attack_cooldown = 2.2
+radius = 20.0
+color = Color(0.9, 0.5, 0.15, 1)
+ai = 2
+spawn_weight = 1.0
+group_min = 1
+group_max = 1
+max_alive = 2
+leap_cooldown = 6.0
+leap_min_distance = 70.0
+leap_max_distance = 240.0
+leap_windup = 0.9
+leap_duration = 0.6
+leap_radius = 50.0
+leap_damage = 25
+leap_height = 60.0
+drop_money_min = 40
+drop_money_max = 80

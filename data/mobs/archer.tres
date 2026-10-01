@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="MobData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/mob_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"archer"
+display_name = "Arquero"
+max_health = 20
+move_speed = 50.0
+damage = 6
+attack_range = 190.0
+attack_windup = 0.6
+attack_cooldown = 2.0
+radius = 6.0
+color = Color(0.3, 0.7, 0.35, 1)
+ai = 1
+spawn_weight = 5.0
+group_min = 1
+group_max = 3
+max_alive = 0
+preferred_distance = 130.0
+projectile_speed = 150.0
+projectile_radius = 4.0
+projectile_lifetime = 3.0
+drop_money_min = 2
+drop_money_max = 5
