@@ -12,35 +12,37 @@ script = ExtResource("1")
 head_front_texture = ExtResource("2")
 head_back_texture = ExtResource("3")
 
-[node name="Pieces" type="Node2D" parent="."]
+[node name="Body" type="Node2D" parent="."]
+
+[node name="Pieces" type="Node2D" parent="Body"]
 position = Vector2(0, -26)
 
-[node name="FootL" type="Sprite2D" parent="Pieces"]
+[node name="FootL" type="Sprite2D" parent="Body/Pieces"]
 position = Vector2(-16, 0)
 texture = ExtResource("6")
 region_enabled = true
 region_rect = Rect2(0, 0, 32, 64)
 
-[node name="FootR" type="Sprite2D" parent="Pieces"]
+[node name="FootR" type="Sprite2D" parent="Body/Pieces"]
 position = Vector2(16, 0)
 texture = ExtResource("6")
 region_enabled = true
 region_rect = Rect2(32, 0, 32, 64)
 
-[node name="Chest" type="Sprite2D" parent="Pieces"]
+[node name="Chest" type="Sprite2D" parent="Body/Pieces"]
 texture = ExtResource("4")
 
-[node name="HandL" type="Sprite2D" parent="Pieces"]
+[node name="HandL" type="Sprite2D" parent="Body/Pieces"]
 position = Vector2(-16, 0)
 texture = ExtResource("5")
 region_enabled = true
 region_rect = Rect2(0, 0, 32, 64)
 
-[node name="HandR" type="Sprite2D" parent="Pieces"]
+[node name="HandR" type="Sprite2D" parent="Body/Pieces"]
 position = Vector2(16, 0)
 texture = ExtResource("5")
 region_enabled = true
 region_rect = Rect2(32, 0, 32, 64)
 
-[node name="Head" type="Sprite2D" parent="Pieces"]
+[node name="Head" type="Sprite2D" parent="Body/Pieces"]
 texture = ExtResource("2")

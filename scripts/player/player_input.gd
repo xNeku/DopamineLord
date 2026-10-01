@@ -7,4 +7,7 @@ extends Node
 
 
 func _physics_process(_delta: float) -> void:
-	_player.set_move_order(Input.get_vector("move_left", "move_right", "move_up", "move_down"))
+	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	_player.set_move_order(direction)
+	if Input.is_action_just_pressed("jump"):
+		_player.request_jump(direction)

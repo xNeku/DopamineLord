@@ -31,13 +31,24 @@ extends Node2D
 ## Rapidez con la que se pasa de idle a andar y al revés.
 @export var walk_blend_speed: float = 10.0
 
-@onready var _pieces: Node2D = $Pieces
-@onready var _head: Sprite2D = $Pieces/Head
-@onready var _chest: Sprite2D = $Pieces/Chest
-@onready var _hand_l: Sprite2D = $Pieces/HandL
-@onready var _hand_r: Sprite2D = $Pieces/HandR
-@onready var _foot_l: Sprite2D = $Pieces/FootL
-@onready var _foot_r: Sprite2D = $Pieces/FootR
+@export_group("Salto")
+## Altura máxima del salto en píxeles.
+@export var jump_height: float = 28.0
+## Cuánto se estira el cuerpo en el aire (0.12 = un 12 %).
+@export var jump_stretch: float = 0.12
+## Cuánto se aplasta al despegar y al aterrizar.
+@export var jump_squash: float = 0.18
+## Fracción del salto (0 a 0.5) que dura cada aplastamiento, al principio y al final.
+@export_range(0.02, 0.5) var jump_squash_window: float = 0.12
+
+@onready var _body: Node2D = $Body
+@onready var _pieces: Node2D = $Body/Pieces
+@onready var _head: Sprite2D = $Body/Pieces/Head
+@onready var _chest: Sprite2D = $Body/Pieces/Chest
+@onready var _hand_l: Sprite2D = $Body/Pieces/HandL
+@onready var _hand_r: Sprite2D = $Body/Pieces/HandR
+@onready var _foot_l: Sprite2D = $Body/Pieces/FootL
+@onready var _foot_r: Sprite2D = $Body/Pieces/FootR
 
 var _idle_time: float = 0.0
 var _walk_time: float = 0.0
@@ -45,6 +56,8 @@ var _walk_time: float = 0.0
 var _walk: float = 0.0
 var _walk_target: float = 0.0
 var _base: Dictionary = {}
+## Tamaño de la sombra (1 = en el suelo, menos = en el aire).
+var _shadow_scale: float = 1.0
 
 
 func _ready() -> void:
@@ -85,6 +98,32 @@ func set_facing(direction: Vector2) -> void:
 ## `amount` va de 0 (quieto) a 1 (a toda velocidad). Ajusta cuánto se mueven las piezas.
 func set_walking(amount: float) -> void:
 	_walk_target = clampf(amount, 0.0, 1.0)
+
+
+## Progreso del salto de 0 (despega) a 1 (aterriza). Un valor negativo = no está saltando.
+## El cuerpo sube con un arco, se estira en el aire y se aplasta al despegar y aterrizar;
+## la sombra se queda en el suelo.
+func set_jump_progress(progress: float) -> void:
+	if progress < 0.0:
+		_body.position = Vector2.ZERO
+		_body.scale = Vector2.ONE
+		_shadow_scale = 1.0
+		queue_redraw()
+		return
+	var lift := sin(PI * progress)
+	var squash := maxf(0.0, 1.0 - progress / jump_squash_window)
+	squash += maxf(0.0, (progress - (1.0 - jump_squash_window)) / jump_squash_window)
+	var scale_y := 1.0 + jump_stretch * lift - jump_squash * squash
+	_body.position = Vector2(0.0, -jump_height * lift)
+	_body.scale = Vector2(1.0 / scale_y, scale_y)
+	_shadow_scale = 1.0 - 0.4 * lift
+	queue_redraw()
+
+
+## Sombra en el suelo, bajo los pies.
+func _draw() -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.4) * _shadow_scale)
+	draw_circle(Vector2.ZERO, 13.0, Color(0, 0, 0, 0.3))
 
 
 func _place(piece: Sprite2D, y_offset: float) -> void:
