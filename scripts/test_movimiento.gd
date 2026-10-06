@@ -250,3 +250,8 @@ func _add_obstacle(pos: Vector2, size: Vector2, layer: int, color: Color, round_
 	body.add_child(shape)
 	body.add_child(polygon)
 	add_child(body)
+	# Los mobs no son cuerpos físicos: se les avisa del obstáculo aparte.
+	if round_shape:
+		_mobs.add_obstacle_circle(pos, size.x * 0.5)
+	else:
+		_mobs.add_obstacle_rect(pos, size)

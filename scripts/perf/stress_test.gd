@@ -51,6 +51,7 @@ func _apply_limits() -> void:
 func _physics_process(_delta: float) -> void:
 	if not multiplayer.is_server() or player == null:
 		return
+	PerfProbe.begin(&"stress")
 	var missing_mobs := target_mobs - mobs.mob_count()
 	if missing_mobs > 0:
 		mobs.debug_spawn(mini(missing_mobs, 40), player.position)
@@ -58,3 +59,4 @@ func _physics_process(_delta: float) -> void:
 	for i in clampi(missing_projectiles, 0, 40):
 		_angle += 0.61803 * TAU
 		projectiles.fire(multiplayer.get_unique_id(), BOLT, player.position + Vector2(0, -12), Vector2.from_angle(_angle), 0.05)
+	PerfProbe.end(&"stress")

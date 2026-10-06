@@ -7,12 +7,26 @@ extends Node
 ## 10 veces por segundo, que suavizan. Offline, el jugador es su propio host y todo funciona
 ## igual.
 
-const MOB_SCENE := preload("res://scenes/mob.tscn")
 ## Cada cuánto se reparte la vida que se ha juntado.
 const HEAL_INTERVAL := 0.25
 ## Lado de las celdas de la rejilla espacial (suelo plano) y mayor radio de mob que se espera.
 const GRID_CELL := 48.0
 const MAX_MOB_RADIUS := 24.0
+## Cuánto pueden solaparse dos mobs antes de empujarse (1 = nada, 0.85 = un poco, como una muchedumbre).
+const SEPARATION := 0.85
+## La separación se reparte en tantas fases (cada tick toca una parte de las celdas) y empuja a lo
+## sumo MAX_PUSH píxeles por pasada.
+const SEPARATION_PHASES := 3
+const MAX_PUSH := 4.0
+## Las celdas se numeran con un entero (más barato que un Vector2i como clave del diccionario).
+const KEY_SPAN := 32768
+const KEY_OFFSET := 16384
+## Foto de posiciones para los clientes: zona que se manda (mitad, en pantalla; el doble de lo que
+## se ve), tamaño de cada mob en el paquete y tope del paquete (bajo el MTU de 1392 bytes).
+const SNAPSHOT_HALF := Vector2(660, 380)
+const SNAPSHOT_HEADER := 8
+const SNAPSHOT_MOB_BYTES := 10
+const SNAPSHOT_MAX_BYTES := 1200
 ## Cada cuánto se mandan a los clientes los golpes y muertes juntos.
 const EVENT_INTERVAL := 0.1
 
@@ -53,6 +67,14 @@ var _heal_pool: Dictionary = {}
 var _heal_timer: float = 0.0
 ## Rejilla espacial de los mobs: celda -> mobs. Se rehace cada frame, solo en el host.
 var _grid: Dictionary = {}
+## Obstáculos fijos (árboles, menas, paredes) en el suelo plano. Los mobs no son cuerpos físicos,
+## así que chocan contra esto a mano. Círculos por celda de rejilla; rectángulos en una lista corta.
+var _static_grid: Dictionary = {}
+var _static_rects: Array[Rect2] = []
+var _tick: int = 0
+var _renderer: MobRenderer
+## Cuántos mobs vivos hay de cada tipo (para respetar `max_alive` sin recorrerlos todos).
+var _alive_by_kind: Dictionary = {}
 ## Golpes y muertes que se mandan a los clientes en un solo paquete.
 var _pending_hits: Dictionary = {}
 var _pending_deaths: PackedInt32Array = PackedInt32Array()
@@ -62,6 +84,11 @@ var projectiles: ProjectileManager
 
 
 func _ready() -> void:
+	_renderer = MobRenderer.new()
+	_renderer.name = "MobRenderer"
+	_renderer.mobs = _mobs
+	_renderer.players = players
+	add_child(_renderer)
 	_probe.radius = 9.0
 	if not multiplayer.is_server():
 		_request_sync.rpc_id(1)
@@ -91,13 +118,17 @@ func mobs_in_circle(center: Vector2, ground_radius: float) -> Array[Mob]:
 func mobs_near_ground(ground_center: Vector2, ground_radius: float) -> Array[Mob]:
 	var result: Array[Mob] = []
 	var reach := ground_radius + MAX_MOB_RADIUS
-	var low := Vector2i(floori((ground_center.x - reach) / GRID_CELL), floori((ground_center.y - reach) / GRID_CELL))
-	var high := Vector2i(floori((ground_center.x + reach) / GRID_CELL), floori((ground_center.y + reach) / GRID_CELL))
-	for cx in range(low.x, high.x + 1):
-		for cy in range(low.y, high.y + 1):
-			var cell: Array = _grid.get(Vector2i(cx, cy), [])
+	var low_x := floori((ground_center.x - reach) / GRID_CELL)
+	var low_y := floori((ground_center.y - reach) / GRID_CELL)
+	var high_x := floori((ground_center.x + reach) / GRID_CELL)
+	var high_y := floori((ground_center.y + reach) / GRID_CELL)
+	for cx in range(low_x, high_x + 1):
+		for cy in range(low_y, high_y + 1):
+			var cell: Variant = _grid.get((cx + KEY_OFFSET) * KEY_SPAN + cy + KEY_OFFSET)
+			if cell == null:
+				continue
 			for mob: Mob in cell:
-				if is_instance_valid(mob) and not mob.dying:
+				if not mob.dying:
 					result.append(mob)
 	return result
 
@@ -118,13 +149,38 @@ func debug_spawn(count: int, center: Vector2) -> void:
 func _rebuild_grid() -> void:
 	_grid.clear()
 	for mob: Mob in _mobs.values():
-		var ground := Iso.to_ground(mob.position)
+		var position := mob.position
+		var ground := Vector2(position.x, position.y * 2.0)
 		mob.ground_position = ground
-		var key := Vector2i(floori(ground.x / GRID_CELL), floori(ground.y / GRID_CELL))
-		var cell: Array = _grid.get(key, [])
-		if cell.is_empty():
-			_grid[key] = cell
-		cell.append(mob)
+		var key := (floori(ground.x / GRID_CELL) + KEY_OFFSET) * KEY_SPAN + floori(ground.y / GRID_CELL) + KEY_OFFSET
+		var cell: Variant = _grid.get(key)
+		if cell == null:
+			_grid[key] = [mob]
+		else:
+			cell.append(mob)
+
+
+## Obstáculo redondo fijo (un árbol, una mena). `screen_position` en pantalla; el radio en el suelo
+## plano. Los mobs no lo atraviesan.
+func add_obstacle_circle(screen_position: Vector2, radius: float) -> void:
+	var center := Iso.to_ground(screen_position)
+	var reach := radius + MAX_MOB_RADIUS
+	for cx in range(floori((center.x - reach) / GRID_CELL), floori((center.x + reach) / GRID_CELL) + 1):
+		for cy in range(floori((center.y - reach) / GRID_CELL), floori((center.y + reach) / GRID_CELL) + 1):
+			var key := (cx + KEY_OFFSET) * KEY_SPAN + cy + KEY_OFFSET
+			if not _static_grid.has(key):
+				_static_grid[key] = []
+			_static_grid[key].append(Vector3(center.x, center.y, radius))
+	_renderer.sort_anchors.append(screen_position.y)
+
+
+## Pared rectangular fija. `screen_center` y `screen_size` en pantalla. Se guarda como el
+## rectángulo que la envuelve en el suelo plano. Pocas paredes: cada mob las recorre todas.
+func add_obstacle_rect(screen_center: Vector2, screen_size: Vector2) -> void:
+	var center := Iso.to_ground(screen_center)
+	var size := Iso.to_ground(screen_size)
+	_static_rects.append(Rect2(center - size * 0.5, size))
+	_renderer.sort_anchors.append(screen_center.y)
 
 
 ## El jugador local ha atacado. Si somos el host se resuelve aquí; si no, se lo pedimos.
@@ -136,7 +192,15 @@ func request_attack(position: Vector2, direction: Vector2) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	PerfProbe.begin(&"mob_all")
+	_physics_tick(delta)
+	PerfProbe.end(&"mob_all")
+
+
+func _physics_tick(delta: float) -> void:
 	if not multiplayer.is_server():
+		for mob: Mob in _mobs.values():
+			mob.step(delta)
 		return
 	_spawn_timer += delta
 	if _spawn_timer >= spawn_interval:
@@ -152,9 +216,16 @@ func _physics_process(delta: float) -> void:
 		if not mob.dying:
 			_think(mob, delta)
 	PerfProbe.end(&"mob_think")
+	PerfProbe.begin(&"mob_move")
+	_integrate(delta)
+	PerfProbe.end(&"mob_move")
 	PerfProbe.begin(&"mob_grid")
 	_rebuild_grid()
 	PerfProbe.end(&"mob_grid")
+	PerfProbe.begin(&"mob_push")
+	_separate()
+	_finish_move()
+	PerfProbe.end(&"mob_push")
 	PerfProbe.begin(&"mob_shots")
 	_check_projectiles()
 	PerfProbe.end(&"mob_shots")
@@ -223,11 +294,17 @@ func _pick_kind() -> StringName:
 
 
 func _alive_of(kind: StringName) -> int:
-	var count := 0
-	for mob: Mob in _mobs.values():
-		if mob.data.id == kind:
-			count += 1
-	return count
+	return _alive_by_kind.get(kind, 0)
+
+
+## Quita un mob de la lista y de los contadores. Devuelve false si ya no estaba.
+func _forget_mob(id: int) -> bool:
+	var mob: Mob = _mobs.get(id)
+	if mob == null:
+		return false
+	_mobs.erase(id)
+	_alive_by_kind[mob.data.id] = maxi(0, _alive_by_kind.get(mob.data.id, 1) - 1)
+	return true
 
 
 ## Los mobs que se han quedado muy lejos de todos los jugadores desaparecen, para no
@@ -256,7 +333,6 @@ func _think(mob: Mob, delta: float) -> void:
 		mob.knock_left -= delta
 		mob.windup = false
 		mob.velocity = mob.knock_velocity
-		mob.move_and_slide()
 		if mob.knock_left <= 0.0:
 			_end_knock(mob)
 		return
@@ -283,10 +359,6 @@ func _think(mob: Mob, delta: float) -> void:
 			mob.slow_mult = 1.0
 	# Las skills pueden arrastrar al mob mientras hace otra cosa.
 	mob.velocity += mob.pull_velocity
-	if mob.velocity != Vector2.ZERO:
-		PerfProbe.begin(&"mob_slide")
-		mob.move_and_slide()
-		PerfProbe.end(&"mob_slide")
 
 
 func _think_melee(mob: Mob, target: Player, to_target: Vector2, distance: float, delta: float) -> void:
@@ -337,6 +409,134 @@ func _fire_projectile(mob: Mob, target: Player) -> void:
 	var id := _next_id
 	_next_id += 1
 	_spawn_projectile.rpc(id, mob.position + Vector2(0, -8), velocity, mob.data.projectile_radius, mob.data.damage, mob.data.projectile_lifetime)
+
+
+## Mueve a cada mob según la velocidad que le ha puesto su IA. Sin física: solo suma.
+func _integrate(delta: float) -> void:
+	for mob: Mob in _mobs.values():
+		if mob.is_leaping():
+			mob.step(delta)
+		elif not mob.dying and mob.velocity != Vector2.ZERO:
+			mob.position += mob.velocity * delta
+
+
+## Separa a los mobs que se solapan, usando la rejilla. Cada pareja se mira una sola vez (misma
+## celda, o la celda de la derecha y las tres de abajo) y solo una de cada SEPARATION_PHASES celdas
+## por tick: es un ajuste suave, no hace falta cada frame. Los pesados empujan a los ligeros.
+func _separate() -> void:
+	const AHEAD: Array[int] = [KEY_SPAN, KEY_SPAN * -1 + 1, 1, KEY_SPAN + 1]
+	_tick += 1
+	for key: int in _grid:
+		if (key + _tick) % SEPARATION_PHASES != 0:
+			continue
+		var cell: Array = _grid[key]
+		var count := cell.size()
+		for i in count:
+			var a: Mob = cell[i]
+			var ax := a.ground_position.x
+			var ay := a.ground_position.y
+			var ar := a.sep_radius
+			for j in range(i + 1, count):
+				var b: Mob = cell[j]
+				var dx := ax - b.ground_position.x
+				var dy := ay - b.ground_position.y
+				var reach := ar + b.sep_radius
+				if dx * dx + dy * dy < reach * reach:
+					_resolve_overlap(a, b, dx, dy, reach)
+					ax = a.ground_position.x
+					ay = a.ground_position.y
+			for step in AHEAD:
+				var other: Variant = _grid.get(key + step)
+				if other == null:
+					continue
+				for b: Mob in other:
+					var dx := ax - b.ground_position.x
+					var dy := ay - b.ground_position.y
+					var reach := ar + b.sep_radius
+					if dx * dx + dy * dy < reach * reach:
+						_resolve_overlap(a, b, dx, dy, reach)
+						ax = a.ground_position.x
+						ay = a.ground_position.y
+
+
+## Aparta a dos mobs que se solapan. El empujón por tick está limitado: si salen apilados
+## (un grupo recién aparecido) se abren poco a poco, sin saltos.
+func _resolve_overlap(a: Mob, b: Mob, dx: float, dy: float, reach: float) -> void:
+	if a.is_leaping() or b.is_leaping():
+		return
+	var distance := sqrt(dx * dx + dy * dy)
+	if distance < 0.01:
+		dx = randf() - 0.5
+		dy = randf() - 0.5
+		distance = sqrt(dx * dx + dy * dy) + 0.0001
+	var overlap := minf(reach - distance, MAX_PUSH)
+	# Reparto del empujón según el tamaño; un mob empujado (knockback) no cede.
+	var share_a := b.radius / (a.radius + b.radius)
+	if a.knock_left > 0.0:
+		share_a = 0.0
+	elif b.knock_left > 0.0:
+		share_a = 1.0
+	var nx := dx / distance
+	var ny := dy / distance
+	var pa := a.ground_position
+	var pb := b.ground_position
+	a.ground_position = Vector2(pa.x + nx * overlap * share_a, pa.y + ny * overlap * share_a)
+	b.ground_position = Vector2(pb.x - nx * overlap * (1.0 - share_a), pb.y - ny * overlap * (1.0 - share_a))
+	a.pushed = true
+	b.pushed = true
+
+
+## Choca a los mobs con los obstáculos fijos y escribe la posición final de los que se han movido.
+func _finish_move() -> void:
+	var has_static := not _static_grid.is_empty() or not _static_rects.is_empty()
+	for mob: Mob in _mobs.values():
+		if mob.dying:
+			continue
+		if has_static and not mob.is_leaping():
+			_collide_static(mob)
+		if mob.pushed:
+			mob.pushed = false
+			mob.position = Vector2(mob.ground_position.x, mob.ground_position.y * Iso.Y_SCALE)
+
+
+func _collide_static(mob: Mob) -> void:
+	var g := mob.ground_position
+	var radius := mob.data.radius
+	var cell: Variant = _static_grid.get((floori(g.x / GRID_CELL) + KEY_OFFSET) * KEY_SPAN + floori(g.y / GRID_CELL) + KEY_OFFSET)
+	if cell != null:
+		for obstacle: Vector3 in cell:
+			var dx := g.x - obstacle.x
+			var dy := g.y - obstacle.y
+			var min_distance := obstacle.z + radius
+			var d2 := dx * dx + dy * dy
+			if d2 < min_distance * min_distance:
+				var distance := sqrt(d2)
+				if distance < 0.01:
+					g.x += min_distance
+				else:
+					g.x = obstacle.x + dx / distance * min_distance
+					g.y = obstacle.y + dy / distance * min_distance
+				mob.pushed = true
+	for rect in _static_rects:
+		var grown := rect.grow(radius)
+		if not grown.has_point(g):
+			continue
+		var left := g.x - grown.position.x
+		var right := grown.end.x - g.x
+		var top := g.y - grown.position.y
+		var bottom := grown.end.y - g.y
+		var nearest := minf(minf(left, right), minf(top, bottom))
+		if nearest == left:
+			g.x = grown.position.x
+		elif nearest == right:
+			g.x = grown.end.x
+		elif nearest == top:
+			g.y = grown.position.y
+		else:
+			g.y = grown.end.y
+		mob.pushed = true
+	if mob.pushed:
+		mob.ground_position = g
 
 
 ## Si toca, el mob grande avisa y salta sobre el jugador. Devuelve true si empieza el salto.
@@ -406,19 +606,45 @@ func _nearest_player(from: Vector2) -> Player:
 	return best
 
 
+## Manda a cada cliente solo los mobs que tiene cerca (el doble de lo que se ve), en paquetes que
+## caben en un datagrama. Por mob: id (4 bytes), posición relativa al jugador en cuartos de
+## píxel (2 + 2), vida en 0..255 y bit de aviso de golpe (1 + 1) = 10 bytes.
 func _send_snapshot() -> void:
-	if multiplayer.get_peers().is_empty():
-		return
-	var ids := PackedInt32Array()
-	var positions := PackedVector2Array()
-	var healths := PackedInt32Array()
-	var flags := PackedInt32Array()
-	for mob: Mob in _mobs.values():
-		ids.append(mob.mob_id)
-		positions.append(mob.position)
-		healths.append(mob.health)
-		flags.append(1 if mob.windup else 0)
-	_snapshot.rpc(ids, positions, healths, flags)
+	PerfProbe.begin(&"mob_snap")
+	for peer_id in multiplayer.get_peers():
+		var viewer := _player_by_peer(peer_id)
+		if viewer == null:
+			continue
+		var origin := viewer.position
+		var low := origin - SNAPSHOT_HALF
+		var high := origin + SNAPSHOT_HALF
+		var packet := PackedByteArray()
+		var used := SNAPSHOT_HEADER
+		packet.resize(SNAPSHOT_MAX_BYTES)
+		packet.encode_s32(0, roundi(origin.x))
+		packet.encode_s32(4, roundi(origin.y))
+		for mob: Mob in _mobs.values():
+			var position := mob.position
+			if position.x < low.x or position.x > high.x or position.y < low.y or position.y > high.y:
+				continue
+			packet.encode_s32(used, mob.mob_id)
+			packet.encode_s16(used + 4, roundi((position.x - roundi(origin.x)) * 4.0))
+			packet.encode_s16(used + 6, roundi((position.y - roundi(origin.y)) * 4.0))
+			packet.encode_u8(used + 8, clampi(roundi(255.0 * mob.health / mob.data.max_health), 0, 255))
+			packet.encode_u8(used + 9, 1 if mob.windup else 0)
+			used += SNAPSHOT_MOB_BYTES
+			if used + SNAPSHOT_MOB_BYTES > SNAPSHOT_MAX_BYTES:
+				packet.resize(used)
+				_snapshot.rpc_id(peer_id, packet)
+				packet = PackedByteArray()
+				packet.resize(SNAPSHOT_MAX_BYTES)
+				packet.encode_s32(0, roundi(origin.x))
+				packet.encode_s32(4, roundi(origin.y))
+				used = SNAPSHOT_HEADER
+		if used > SNAPSHOT_HEADER:
+			packet.resize(used)
+			_snapshot.rpc_id(peer_id, packet)
+	PerfProbe.end(&"mob_snap")
 
 
 func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> void:
@@ -465,10 +691,9 @@ func hit_mob(mob: Mob, damage: int, attacker_peer: int, is_crit: bool = false) -
 	if mob.health > 0:
 		return false
 	mob.dying = true
-	_mobs.erase(mob.mob_id)
+	_forget_mob(mob.mob_id)
 	_pending_deaths.append(mob.mob_id)
 	stats["kills"] += 1
-	mob.queue_free()
 	mob_killed.emit(mob.data.id, mob.position, attacker_peer)
 	return true
 
@@ -582,11 +807,16 @@ func _spawn_mob(id: int, mob_id: StringName, spot: Vector2) -> void:
 
 
 @rpc("authority", "unreliable_ordered")
-func _snapshot(ids: PackedInt32Array, positions: PackedVector2Array, healths: PackedInt32Array, flags: PackedInt32Array) -> void:
-	for i in ids.size():
-		var mob: Mob = _mobs.get(ids[i])
+func _snapshot(packet: PackedByteArray) -> void:
+	var origin := Vector2(packet.decode_s32(0), packet.decode_s32(4))
+	var at := SNAPSHOT_HEADER
+	while at + SNAPSHOT_MOB_BYTES <= packet.size():
+		var mob: Mob = _mobs.get(packet.decode_s32(at))
 		if mob != null:
-			mob.apply_snapshot(positions[i], healths[i], flags[i])
+			var position := origin + Vector2(packet.decode_s16(at + 4), packet.decode_s16(at + 6)) * 0.25
+			var health := roundi(packet.decode_u8(at + 8) * mob.data.max_health / 255.0)
+			mob.apply_snapshot(position, health, packet.decode_u8(at + 9))
+		at += SNAPSHOT_MOB_BYTES
 
 
 ## Golpes y muertes de los últimos EVENT_INTERVAL segundos, juntos. En el host el mob ya está
@@ -611,8 +841,7 @@ func _mob_events(ids: PackedInt32Array, damages: PackedInt32Array, remainings: P
 	for id in deaths:
 		var dead: Mob = _mobs.get(id)
 		if dead != null:
-			_mobs.erase(id)
-			dead.queue_free()
+			_forget_mob(id)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -654,8 +883,7 @@ func _mob_leap(id: int, from: Vector2, to: Vector2, windup_time: float, duration
 func _mob_despawn(id: int) -> void:
 	var mob: Mob = _mobs.get(id)
 	if mob != null:
-		_mobs.erase(id)
-		mob.queue_free()
+		_forget_mob(id)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -727,12 +955,14 @@ func _sync(ids: PackedInt32Array, kinds: PackedStringArray, positions: PackedVec
 func _create_mob(id: int, kind: StringName, spot: Vector2, health: int) -> void:
 	if _mobs.has(id):
 		return
-	var mob := MOB_SCENE.instantiate() as Mob
+	var mob := Mob.new()
 	mob.position = spot
-	mob.setup(id, GameData.mob(kind), not multiplayer.is_server())
+	var data := GameData.mob(kind)
+	mob.setup(id, data, not multiplayer.is_server())
+	mob.kind = _renderer.kind_of(data)
 	if health >= 0:
 		mob.health = health
-	add_child(mob)
 	_mobs[id] = mob
+	_alive_by_kind[kind] = _alive_by_kind.get(kind, 0) + 1
 	if multiplayer.is_server():
 		mob.leap_landed.connect(_on_leap_landed)

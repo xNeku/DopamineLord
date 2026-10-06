@@ -53,6 +53,12 @@ func on_player_died(peer_id: int) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	PerfProbe.begin(&"loot")
+	_physics_tick(delta)
+	PerfProbe.end(&"loot")
+
+
+func _physics_tick(delta: float) -> void:
 	if not multiplayer.is_server():
 		return
 	for drop: Drop in _drops.values().duplicate():

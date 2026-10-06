@@ -14,6 +14,12 @@ const FLIGHT_HEIGHT := 12.0
 const EXPLOSION_TIME := 0.3
 const FALL_TIME := 0.3
 const FALL_HEIGHT := 160.0
+const SHADER := preload("res://scripts/world/projectile_renderer.gdshader")
+const MAX_KINDS := 32
+const FLOATS_PER_INSTANCE := 12  # transform 2D (8) + datos propios (4)
+const BALL_SEGMENTS := 16
+## Se dibujan los proyectiles hasta este margen más allá de la pantalla.
+const CULL_HALF := Vector2(320, 180) + Vector2(40, 40)
 ## Topes de proyectiles vivos, por jugador y en total.
 @export var max_per_player: int = 150
 @export var max_total: int = 600
@@ -41,6 +47,8 @@ class Proj:
 	var bounce_range: float = 0.0
 	var bounce_gain: float = 0.0
 	var dead: bool = false
+	## Tipo en el dibujo en bloque.
+	var kind: int = 0
 
 ## Todos los jugadores y el gestor de mobs. Los rellena el mundo.
 var players: Array[Player] = []
@@ -56,6 +64,13 @@ var _falls: Array[Dictionary] = []
 var _per_owner: Dictionary = {}
 var _next_id: int = 1
 var _was_active: bool = false
+## Dibujo en bloque: una MultiMesh compartida por dos nodos (sombras debajo, cuerpos encima).
+var _multimesh: MultiMesh
+var _buffer := PackedFloat32Array()
+var _materials: Array[ShaderMaterial] = []
+var _kind_index: Dictionary = {}
+var _kind_colors := PackedVector4Array()
+var _kind_shapes := PackedFloat32Array()
 
 # Eventos del host pendientes de mandar este frame.
 var _spawn_ids := PackedInt32Array()
@@ -76,6 +91,23 @@ var _redirect_dirs := PackedVector2Array()
 
 func _ready() -> void:
 	z_index = 30
+	_kind_colors.resize(MAX_KINDS)
+	_kind_shapes.resize(MAX_KINDS)
+	_multimesh = MultiMesh.new()
+	_multimesh.transform_format = MultiMesh.TRANSFORM_2D
+	_multimesh.use_colors = false
+	_multimesh.use_custom_data = true
+	_multimesh.mesh = _build_mesh()
+	for layer in 2:
+		var material := ShaderMaterial.new()
+		material.shader = SHADER
+		material.set_shader_parameter("layer", layer)
+		_materials.append(material)
+		var node := MultiMeshInstance2D.new()
+		node.multimesh = _multimesh
+		node.material = material
+		node.z_index = -1 if layer == 0 else 0
+		add_child(node)
 
 
 func projectile_count() -> int:
@@ -140,6 +172,9 @@ func _process(_delta: float) -> void:
 	if active or _was_active:
 		queue_redraw()
 	_was_active = active
+	PerfProbe.begin(&"proj_draw")
+	_fill_instances()
+	PerfProbe.end(&"proj_draw")
 
 
 ## Manchas en el suelo que duran `life` segundos (solo visual; el daño lo lleva quien las
@@ -324,6 +359,7 @@ func _ev_spawn(ids: PackedInt32Array, kinds: PackedStringArray, peers: PackedInt
 		proj.position = positions[i]
 		proj.direction = dirs[i]
 		proj.radius = data.radius
+		proj.kind = _kind_of(data)
 		_view[proj.id] = proj
 
 
@@ -394,17 +430,125 @@ func _age_list(list: Array[Dictionary], delta: float, life: float) -> void:
 		i -= 1
 
 
+## Escribe en la MultiMesh los proyectiles que están a la vista. Cuesta lo mismo (casi) con 50
+## que con 500 y se dibuja en dos llamadas.
+func _fill_instances() -> void:
+	var count := 0
+	if not players.is_empty() and not _view.is_empty():
+		var center: Vector2 = players[0].position
+		var low := center - CULL_HALF
+		var high := center + CULL_HALF
+		var needed := _view.size() * FLOATS_PER_INSTANCE
+		if needed > _buffer.size():
+			_buffer.resize(maxi(needed, maxi(_buffer.size() * 2, 128 * FLOATS_PER_INSTANCE)))
+		var buffer := _buffer
+		for proj: Proj in _view.values():
+			var position := proj.position
+			if position.x < low.x or position.x > high.x or position.y < low.y or position.y > high.y:
+				continue
+			var offset := count * FLOATS_PER_INSTANCE
+			buffer[offset] = 1.0
+			buffer[offset + 1] = 0.0
+			buffer[offset + 2] = 0.0
+			buffer[offset + 3] = position.x
+			buffer[offset + 4] = 0.0
+			buffer[offset + 5] = 1.0
+			buffer[offset + 6] = 0.0
+			buffer[offset + 7] = position.y
+			buffer[offset + 8] = float(proj.kind)
+			buffer[offset + 9] = proj.radius
+			if proj.data.shape == ProjectileData.Shape.ARROW:
+				var along := Iso.to_screen(proj.direction).normalized()
+				buffer[offset + 10] = along.x
+				buffer[offset + 11] = along.y
+			else:
+				buffer[offset + 10] = proj.age * 6.0
+				buffer[offset + 11] = 0.0
+			count += 1
+		if count > 0:
+			var capacity := buffer.size() / FLOATS_PER_INSTANCE
+			if _multimesh.instance_count != capacity:
+				_multimesh.instance_count = capacity
+			_multimesh.buffer = buffer
+	_multimesh.visible_instance_count = count
+
+
+## Número de tipo para un proyectil (color y forma viajan en uniformes del shader).
+func _kind_of(data: ProjectileData) -> int:
+	if _kind_index.has(data.id):
+		return _kind_index[data.id]
+	var index: int = _kind_index.size()
+	if index >= MAX_KINDS:
+		push_warning("ProjectileManager: más de %d tipos de proyectil, se reutiliza el último" % MAX_KINDS)
+		return MAX_KINDS - 1
+	_kind_index[data.id] = index
+	_kind_colors[index] = Vector4(data.color.r, data.color.g, data.color.b, 1.0)
+	_kind_shapes[index] = float(data.shape)
+	for material in _materials:
+		material.set_shader_parameter("kind_color", _kind_colors)
+		material.set_shader_parameter("kind_shape", _kind_shapes)
+	return index
+
+
+## Una malla con todas las formas posibles; el shader enseña solo las que tocan según la forma
+## del proyectil. UV.x lleva el número de la parte (0 sombra, 1 halo, 2 cuerpo, 3 núcleo,
+## 4 cuerpo de flecha, 5 punta de flecha, 6 mancha de nieve, 7 aro de nieve); UV.y, qué mancha.
+func _build_mesh() -> ArrayMesh:
+	var vertices := PackedVector2Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	_add_disc(vertices, uvs, indices, 0, 0.0, Vector2.ZERO, 1.0, Vector2(1.0, Iso.Y_SCALE))
+	_add_disc(vertices, uvs, indices, 1, 0.0, Vector2.ZERO, 1.4, Vector2.ONE)
+	_add_disc(vertices, uvs, indices, 2, 0.0, Vector2.ZERO, 1.0, Vector2.ONE)
+	_add_disc(vertices, uvs, indices, 3, 0.0, Vector2.ZERO, 0.45, Vector2.ONE)
+	# Cuerpo de flecha: de -3 a +1,5 radios de largo; la anchura la pone el shader (en píxeles).
+	var first := vertices.size()
+	for corner in [Vector2(-3.0, -1.0), Vector2(1.5, -1.0), Vector2(1.5, 1.0), Vector2(-3.0, 1.0)]:
+		vertices.append(corner)
+		uvs.append(Vector2(4.0, 0.0))
+	indices.append_array([first, first + 1, first + 2, first, first + 2, first + 3])
+	_add_disc(vertices, uvs, indices, 5, 0.0, Vector2.ZERO, 0.7, Vector2.ONE)
+	for k in 3:
+		_add_disc(vertices, uvs, indices, 6, float(k), Vector2.ZERO, 0.28, Vector2.ONE)
+	# Aro de la bola de nieve.
+	first = vertices.size()
+	for i in BALL_SEGMENTS:
+		var direction := Vector2.from_angle(TAU * i / BALL_SEGMENTS)
+		vertices.append(direction * 0.9)
+		vertices.append(direction)
+		uvs.append(Vector2(7.0, 0.0))
+		uvs.append(Vector2(7.0, 0.0))
+	for i in BALL_SEGMENTS:
+		var a := first + i * 2
+		var b := first + ((i + 1) % BALL_SEGMENTS) * 2
+		indices.append_array([a, a + 1, b, b, a + 1, b + 1])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func _add_disc(vertices: PackedVector2Array, uvs: PackedVector2Array, indices: PackedInt32Array, part: int, extra: float, center: Vector2, disc_radius: float, squash: Vector2) -> void:
+	var first := vertices.size()
+	vertices.append(center)
+	uvs.append(Vector2(part, extra))
+	for i in BALL_SEGMENTS:
+		var angle := TAU * i / BALL_SEGMENTS
+		vertices.append(center + Vector2(cos(angle) * disc_radius * squash.x, sin(angle) * disc_radius * squash.y))
+		uvs.append(Vector2(part, extra))
+	for i in BALL_SEGMENTS:
+		indices.append_array([first, first + 1 + i, first + 1 + (i + 1) % BALL_SEGMENTS])
+
+
+## Solo lo que sigue siendo poco numeroso y no merece MultiMesh: manchas del suelo, explosiones
+## y bolas que caen (Lluvia).
 func _draw() -> void:
-	PerfProbe.begin(&"proj_draw")
-	_draw_all()
-	PerfProbe.end(&"proj_draw")
-
-
-func _draw_all() -> void:
-	# Primero todas las sombras, con una sola transformación; luego los cuerpos.
+	PerfProbe.begin(&"fx_draw")
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, Iso.Y_SCALE))
-	for proj: Proj in _view.values():
-		draw_circle(Vector2(proj.position.x, proj.position.y / Iso.Y_SCALE), proj.radius * 0.8, Color(0, 0, 0, 0.25))
 	for patch in _patches:
 		var left: float = 1.0 - patch["age"] / patch["life"]
 		var tone: Color = patch["color"]
@@ -424,25 +568,7 @@ func _draw_all() -> void:
 		var tone: Color = fall["color"]
 		var spot: Vector2 = fall["position"]
 		draw_circle(spot + Vector2(0, -FALL_HEIGHT * (1.0 - t)), 4.0, tone.lightened(0.3))
-	for proj: Proj in _view.values():
-		var at := proj.position + Vector2(0, -FLIGHT_HEIGHT)
-		var color := proj.data.color
-		if proj.data.shape == ProjectileData.Shape.ARROW:
-			var along := Iso.to_screen(proj.direction).normalized()
-			var length := proj.radius * 3.0
-			draw_line(at - along * length, at + along * length * 0.5, color, maxf(2.0, proj.radius * 0.6))
-			draw_circle(at + along * length * 0.5, proj.radius * 0.7, color.lightened(0.4))
-		elif proj.data.shape == ProjectileData.Shape.SNOWBALL:
-			# Bola de nieve rodando: una bola clara con manchas que giran.
-			draw_circle(at, proj.radius, color)
-			for k in 3:
-				var angle := proj.age * 6.0 + k * TAU / 3.0
-				draw_circle(at + Vector2.from_angle(angle) * proj.radius * 0.5, proj.radius * 0.28, color.darkened(0.25))
-			draw_arc(at, proj.radius, 0.0, TAU, 20, color.darkened(0.4), 1.5)
-		else:
-			draw_circle(at, proj.radius * 1.4, Color(color.r, color.g, color.b, 0.3))
-			draw_circle(at, proj.radius, color)
-			draw_circle(at, proj.radius * 0.45, color.lightened(0.6))
+	PerfProbe.end(&"fx_draw")
 
 
 func _player_by_peer(peer_id: int) -> Player:

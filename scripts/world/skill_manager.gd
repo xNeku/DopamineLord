@@ -43,6 +43,12 @@ func request_skill(slot: int, position: Vector2, direction: Vector2, target: Vec
 
 
 func _physics_process(delta: float) -> void:
+	PerfProbe.begin(&"skills")
+	_physics_tick(delta)
+	PerfProbe.end(&"skills")
+
+
+func _physics_tick(delta: float) -> void:
 	if not multiplayer.is_server():
 		return
 	_tick_spins(delta)
