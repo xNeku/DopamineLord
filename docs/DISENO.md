@@ -35,7 +35,42 @@ Marcas:
 
 - Tres ramas: Magia, Rango y Melee. Empezar con pocas cosas y ampliar con updates y DLCs. **[DECIDIDO]**
 - Las ramas no se mezclan: la variedad está dentro de cada rama y su especialización. Cada rama es un árbol con prerrequisitos (para llegar a X hay que subir antes Y y Z). **[DECIDIDO]** Los builds híbridos, si los hay, vienen de los materiales de armadura y las gemas.
-- **[ABIERTO]** Si la rama se elige al crear el personaje o más adelante.
+- En el prototipo la rama (Neku dice "clase") se elige nada más entrar en la partida. **[DECIDIDO]** (06/10/2026). Si en el juego final se fija al crear el personaje sigue **[ABIERTO]**.
+
+## Kits base de las tres ramas (prototipo)
+
+Definidos por Neku el 06/10/2026. Son los kits de prueba del ecosistema inicial: cada rama tiene un ataque básico y 4 skills (slots 1 a 4). No son las especializaciones del 25/50/75, y los números se afinan jugando. **[DECIDIDO]** (el texto de cada skill es de Neku; las notas **[PROPUESTA]** son interpretaciones o avisos de Claude).
+
+### Melee (hecho, ver `data/skills/`)
+Básico: golpe en arco. **[DECIDIDO]**
+1. **Melee Boost:** sube la velocidad de ataque y el alcance.
+2. **Spin to Win:** gira golpeando todo lo del área (como la E de Garen).
+3. **Lanzada:** lanza la espada como un boomerang; crece y llega más lejos cuanto más enemigos golpea.
+4. **Guerra:** grito; caen espadas del cielo en un área circular y los enemigos son atraídos al centro.
+
+### Rango
+Básico: flecha hacia delante.
+1. **Big Arrow:** flecha gigante que empuja (knockback) a los enemigos. Hace daño crítico cuando los saca de la pantalla, porque la flecha sigue avanzando hasta salir de tu rango de visión.
+2. **Speed out:** sube la velocidad de movimiento y de ataque.
+3. **Bounce (pasiva):** al matar a un enemigo con el básico, la flecha rebota al enemigo más cercano. Cada vez que ejecuta a un enemigo, la flecha gana un 25% de daño.
+4. **Fuck all:** empieza a girar y dispara flechas en todas direcciones durante 5 segundos (muchas flechas).
+
+### Magia
+Básico: lanza una bola de magia que hace daño.
+1. **Boost It:** sube mucho la velocidad de ataque. Los proyectiles atraviesan a los enemigos y hacen daño; cuantos más atraviesan, más daño hacen y más grande se hace el proyectil. Si atraviesa a 5 o más, explota en área.
+2. **Speed It:** sube mucho la velocidad de movimiento y deja un rastro que daña a los enemigos (del mismo color que el proyectil). Mientras dura, el mago se tiñe de ese color.
+3. **Big ball:** bola de magia que parece una gran bola de nieve rodando. Explota al impactar con un enemigo, hace daño en área y lanza 15 mini bolas alrededor.
+4. **Lluvia (pasiva):** cada 5 segundos cae una lluvia de bolas del cielo que hace el 50% del daño de sus proyectiles a todos los enemigos en pantalla y los ralentiza. Dura 5 segundos y caen tantos proyectiles como velocidad de ataque tenga en ese momento.
+
+### Avisos y huecos detectados al contrastarlo con el diseño y la técnica **[PROPUESTA]**
+- "Pantalla" y "rango de visión" (Big Arrow, Lluvia) dependen de la cámara de cada cliente, y el host no la conoce. Hay que traducirlo a una distancia fija en el suelo (por ejemplo, el medio ancho de la vista). Ver pregunta abierta.
+- Rendimiento: Fuck all, Boost It y Lluvia generan muchos proyectiles. Los de los mobs son un nodo por proyectil; con las skills hay que usar un gestor de proyectiles que simule y dibuje todos en bloque, con tope por jugador. Los proyectiles viajan como evento (origen y velocidad), no como estado.
+- La velocidad de ataque pasa a ser una estadística real (la usa Lluvia). Sin tope, Boost It + Lluvia se dispara: poner un tope de proyectiles por lluvia.
+- Cadenas de explosión: Boost It (explota a 5 o más) y Big ball (15 mini bolas) pueden encadenarse. Las mini bolas no explotan, y se limita la profundidad.
+- Las pasivas (Bounce, Lluvia) no necesitan botón. Los slots se mantienen como los dio Neku (Rango: 1, 2 y 4 activas; Magia: 1, 2 y 3 activas) y la pasiva se dispara sola.
+- El Melee se hace difícil de jugar porque no se cura. Ni el robo de vida ni la regeneración están en el diseño. Propuesta: pequeño robo de vida solo en Melee, revisar con la hoja de balance. **[ABIERTO]**
+- Elemento, munición y estilo como etiquetas en los datos desde ya (regla del nivel 75): bola de magia, flecha, melee.
+- Las skills de un kit se vuelven a repartir entre las ramas por las elecciones 25/50/75 más adelante. Los kits actuales son la base común.
 
 ## Niveles y especialización
 
@@ -174,6 +209,7 @@ El mando y los menús con foco se tienen en cuenta en todas las fases.
 Objetivo: algo jugable por hasta 4 amigos, con el núcleo del juego a la vista (no solo un tutorial).
 
 **Entra:** **[PROPUESTA]**
+- Cambio decidido el 06/10/2026: las tres ramas (Melee, Rango, Magia) entran ya en el prototipo, con ataque básico y 4 skills cada una, para pasárselo bien matando bichos en un "pequeño ecosistema". **[DECIDIDO]** Riesgo: triplica el balance y el contenido del tramo. Se compensa con kits pequeños, todo por datos y una hoja de balance.
 - Movimiento y salto con programmer art, con mando y teclado/ratón desde el principio y menús navegables con foco.
 - Combate de una sola rama (Melee, la más fácil de probar): ataque básico, también en el aire; mobs que aparecen, se mueven y golpean.
 - Bifurcación del nivel 25 de esa rama, con 2 opciones.
@@ -183,7 +219,7 @@ Objetivo: algo jugable por hasta 4 amigos, con el núcleo del juego a la vista (
 - Muerte: se pierde un porcentaje de dinero.
 - Coop de hasta 4 jugadores, probado desde la primera prueba de red.
 
-**No entra todavía:** oficios, modo difícil, las otras dos ramas, hardcore, renacer, reacciones entre elementos, cosméticos y arte definitivo, y la conexión por Steam.
+**No entra todavía:** oficios, modo difícil, hardcore, renacer, reacciones entre elementos, cosméticos y arte definitivo, y la conexión por Steam.
 
 **Coop de 4, decisiones técnicas:** **[PROPUESTA]**
 - Conexión en la alpha: una red virtual privada entre amigos (Tailscale o ZeroTier) con ENet directo, sin abrir puertos ni montar servidor. Steam (con relay) más adelante.
@@ -199,7 +235,7 @@ Objetivo: algo jugable por hasta 4 amigos, con el núcleo del juego a la vista (
 
 ## Pendientes por decidir
 
-- Si la rama se elige al crear el personaje.
+- Si, en el juego final, la rama se fija al crear el personaje (en el prototipo se elige al entrar en la partida).
 - Reglas de las sinergias elementales: qué pasa al mezclar elementos, topes y resistencias de mobs.
 - Coste del respec y, mucho más adelante, cómo funciona el renacer (qué se conserva).
 - Si la elección del nivel 50 fija el tipo de arma, cómo se tratan los drops de otros tipos.
