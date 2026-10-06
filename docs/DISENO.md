@@ -62,15 +62,20 @@ Básico: lanza una bola de magia que hace daño.
 3. **Big ball:** bola de magia que parece una gran bola de nieve rodando. Explota al impactar con un enemigo, hace daño en área y lanza 15 mini bolas alrededor.
 4. **Lluvia (pasiva):** cada 5 segundos cae una lluvia de bolas del cielo que hace el 50% del daño de sus proyectiles a todos los enemigos en pantalla y los ralentiza. Dura 5 segundos y caen tantos proyectiles como velocidad de ataque tenga en ese momento.
 
-### Avisos y huecos detectados al contrastarlo con el diseño y la técnica **[PROPUESTA]**
-- "Pantalla" y "rango de visión" (Big Arrow, Lluvia) dependen de la cámara de cada cliente, y el host no la conoce. Hay que traducirlo a una distancia fija en el suelo (por ejemplo, el medio ancho de la vista). Ver pregunta abierta.
-- Rendimiento: Fuck all, Boost It y Lluvia generan muchos proyectiles. Los de los mobs son un nodo por proyectil; con las skills hay que usar un gestor de proyectiles que simule y dibuje todos en bloque, con tope por jugador. Los proyectiles viajan como evento (origen y velocidad), no como estado.
-- La velocidad de ataque pasa a ser una estadística real (la usa Lluvia). Sin tope, Boost It + Lluvia se dispara: poner un tope de proyectiles por lluvia.
-- Cadenas de explosión: Boost It (explota a 5 o más) y Big ball (15 mini bolas) pueden encadenarse. Las mini bolas no explotan, y se limita la profundidad.
-- Las pasivas (Bounce, Lluvia) no necesitan botón. Los slots se mantienen como los dio Neku (Rango: 1, 2 y 4 activas; Magia: 1, 2 y 3 activas) y la pasiva se dispara sola.
-- El Melee se hace difícil de jugar porque no se cura. Ni el robo de vida ni la regeneración están en el diseño. Propuesta: pequeño robo de vida solo en Melee, revisar con la hoja de balance. **[ABIERTO]**
+### Decisiones de Neku sobre los avisos (06/10/2026)
+- **Rendimiento, siempre primero.** El juego va camino de tener muchísimos bichos y proyectiles, así que todo se diseña e implementa pensando en eso y en el coop. Las skills son agresivas y grandes a propósito: la gracia es que lleguen oleadas enormes y el jugador tenga de todo para limpiarlas. No se recorta ninguna skill por esto; se resuelve con la implementación. **[DECIDIDO]**
+- "Pantalla" y "rango de visión" (Big Arrow, Lluvia) = la distancia fija del jugador al borde de la pantalla, medida desde el jugador. **[DECIDIDO]** Se implementa como un rectángulo fijo en pantalla (mitad de la vista, 320×180 px) alrededor del jugador, así que no depende de la cámara de cada cliente.
+- Las pasivas (Bounce, Lluvia) se disparan solas, sin botón. Los slots se quedan como los dio Neku (Rango: 1, 2 y 4 activas; Magia: 1, 2 y 3 activas). **[DECIDIDO]**
+- Melee: robo de vida y/o regeneración a criterio de Claude. **[DECIDIDO]** Implementado como robo de vida (se cura una fracción del daño que hace, con skills incluidas, así que limpiar oleadas lo cura) más una regeneración pequeña. Los valores van en la hoja de balance. **[PROPUESTA]**
+- Hoja de balance: sí, Neku la va a tocar desde la tablet. **[DECIDIDO]** Formato **[PROPUESTA]**: CSV en `data/balance/` que el juego lee al arrancar y aplica sobre los datos, para que se edite sin scripts ni exportar.
+
+### Reglas de implementación que salen de esto **[PROPUESTA]**
+- Proyectiles de jugadores y mobs: un gestor que simula todos en bloque y los dibuja con un solo nodo (nada de un nodo por proyectil), con tope por jugador. Por red solo viaja el evento (origen, velocidad, parámetros), nunca el estado de cada proyectil.
+- Daños y curaciones del host se agrupan y se mandan en paquetes unas pocas veces por segundo, no un mensaje por impacto.
+- La velocidad de ataque pasa a ser una estadística real (la usa Lluvia). Tope de proyectiles por lluvia.
+- Cadenas de explosión: Boost It (explota a 5 o más) y Big ball (15 mini bolas). Las mini bolas no explotan y se limita la profundidad.
 - Elemento, munición y estilo como etiquetas en los datos desde ya (regla del nivel 75): bola de magia, flecha, melee.
-- Las skills de un kit se vuelven a repartir entre las ramas por las elecciones 25/50/75 más adelante. Los kits actuales son la base común.
+- Los kits actuales son la base común. Las elecciones 25/50/75 los repartirán más adelante.
 
 ## Niveles y especialización
 
@@ -175,7 +180,7 @@ Básico: lanza una bola de magia que hace daño.
 - Ítems, mobs, skills, gemas y recetas definidos por datos con ID, nada de código por ítem.
 - Mundo: semilla más estado aparte (recursos talados, bosses muertos) que se guarda y se sincroniza.
 - El host manda sobre el mundo (mobs, loot, recursos, bosses, daño) y cada cliente controla el movimiento y el salto de su propio personaje, sin predicción ni rollback (coop entre amigos, sin anti-trampas), para que el salto se sienta inmediato aunque haya latencia. En red se mandan eventos ("se disparó esto aquí"), no estado por frame, y cada cliente solo recibe lo que tiene cerca.
-- Rendimiento: apuntar a cientos de mobs, no miles. Colisiones simples, rejilla espacial, reutilizar objetos; MultiMesh si hace falta. Shaders de gemas en jugadores, no uno por mob.
+- Rendimiento: el juego va camino de muchos bichos y proyectiles, así que se piensa en esto en cada sistema, también en el coop (ver "Decisiones de Neku sobre los avisos"). Apuntar a cientos de mobs, no miles. Colisiones simples, rejilla espacial, reutilizar objetos; MultiMesh si hace falta. Shaders de gemas en jugadores, no uno por mob.
 
 Todas estas reglas son **[PROPUESTA]**.
 
