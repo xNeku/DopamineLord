@@ -15,9 +15,10 @@ const MAX_KINDS := 16
 const FLOATS_PER_INSTANCE := 12  # transform 2D (8) + datos propios (4)
 const SHADER := preload("res://scripts/mobs/mob_renderer.gdshader")
 const BODY_SEGMENTS := 20
-## Cuánto más allá de la pantalla se siguen dibujando mobs.
-const CULL_MARGIN := Vector2(60, 60)
-const VIEW_HALF := Vector2(320, 180)
+## Cuánto más allá de la pantalla se siguen dibujando mobs (su cuerpo y su barra de vida llegan lejos).
+const CULL_MARGIN := 80.0
+## Lo que dura el destello con que se deshace un mob al morir.
+const GHOST_TIME := 0.2
 
 ## Los mobs (id -> Mob) y los jugadores. Los pone el MobManager.
 var mobs: Dictionary = {}
@@ -35,6 +36,8 @@ var _bands: Array[MultiMeshInstance2D] = []
 var _buffers: Array[PackedFloat32Array] = []
 var _counts: PackedInt32Array = PackedInt32Array()
 var _thresholds := PackedFloat32Array()
+## Mobs que acaban de morir y se están deshaciendo (posición, tipo, tiempo).
+var _ghosts: Array[Dictionary] = []
 
 
 func _init() -> void:
@@ -64,6 +67,12 @@ func kind_of(data: MobData) -> int:
 	return index
 
 
+## Un mob ha muerto: se deshace en vez de desaparecer de golpe.
+func add_ghost(mob: Mob) -> void:
+	if _ghosts.size() < 64:
+		_ghosts.append({"position": mob.position, "kind": mob.kind, "age": 0.0, "lift": mob.lift})
+
+
 func _process(delta: float) -> void:
 	if players.is_empty():
 		return
@@ -84,9 +93,9 @@ func _update_bands(delta: float) -> void:
 	for band in band_count:
 		_counts[band] = 0
 
-	var center: Vector2 = players[0].position
-	var low := center - VIEW_HALF - CULL_MARGIN
-	var high := center + VIEW_HALF + CULL_MARGIN
+	var view := ViewInfo.world_rect(get_viewport(), CULL_MARGIN)
+	var low := view.position
+	var high := view.end
 	var thresholds := _thresholds
 	var threshold_count := thresholds.size()
 	# El dibujo va a más fotogramas que la física: el mob se adelanta lo que le toca entre dos
@@ -125,6 +134,22 @@ func _update_bands(delta: float) -> void:
 		buffer[offset + 11] = mob.lift
 		_counts[band] += 1
 
+	# Los mobs que acaban de morir: se encogen y se desvanecen con un destello.
+	var i := _ghosts.size() - 1
+	while i >= 0:
+		var ghost := _ghosts[i]
+		ghost["age"] += delta
+		if ghost["age"] >= GHOST_TIME:
+			_ghosts.remove_at(i)
+		else:
+			var ghost_position: Vector2 = ghost["position"]
+			if ghost_position.x >= low.x and ghost_position.x <= high.x and ghost_position.y >= low.y and ghost_position.y <= high.y:
+				var band := 0
+				while band < threshold_count and ghost_position.y > thresholds[band]:
+					band += 1
+				_write_instance(band, band_count, ghost_position, ghost["kind"], -(ghost["age"] / GHOST_TIME + 0.001), 0.0, ghost["lift"])
+		i -= 1
+
 	for band in band_count:
 		var node := _bands[band]
 		node.position = Vector2(0.0, _band_y(band, band_count))
@@ -137,6 +162,26 @@ func _update_bands(delta: float) -> void:
 		node.visible = _counts[band] > 0
 	for band in range(band_count, _bands.size()):
 		_bands[band].visible = false
+
+
+func _write_instance(band: int, band_count: int, position: Vector2, kind: int, health_ratio: float, flash_and_windup: float, lift: float) -> void:
+	var buffer := _buffers[band]
+	var offset := _counts[band] * FLOATS_PER_INSTANCE
+	if offset + FLOATS_PER_INSTANCE > buffer.size():
+		buffer.resize(maxi(buffer.size() * 2, 64 * FLOATS_PER_INSTANCE))
+	buffer[offset] = 1.0
+	buffer[offset + 1] = 0.0
+	buffer[offset + 2] = 0.0
+	buffer[offset + 3] = position.x
+	buffer[offset + 4] = 0.0
+	buffer[offset + 5] = 1.0
+	buffer[offset + 6] = 0.0
+	buffer[offset + 7] = position.y - _band_y(band, band_count)
+	buffer[offset + 8] = float(kind)
+	buffer[offset + 9] = health_ratio
+	buffer[offset + 10] = flash_and_windup
+	buffer[offset + 11] = lift
+	_counts[band] += 1
 
 
 ## Altura a la que se coloca el nodo de cada banda para que se ordene entre sus vecinos: justo

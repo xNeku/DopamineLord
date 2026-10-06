@@ -153,9 +153,9 @@ func _open_log() -> void:
 	_log = FileAccess.open(folder + "/actual.log", FileAccess.WRITE)
 	if _log == null:
 		return
-	var info := "%s | %s | %s | %s | ventana %s | motor %s" % [
+	var info := "%s | %s | %s | %s | ventana %s | vista %s | motor %s" % [
 		Time.get_datetime_string_from_system(), OS.get_name(), Engine.get_architecture_name(),
-		RenderingServer.get_video_adapter_name(), get_window().size, ProjectSettings.get_setting("rendering/renderer/rendering_method")]
+		RenderingServer.get_video_adapter_name(), get_window().size, ViewInfo.world_rect(get_viewport(), 0.0).size, ProjectSettings.get_setting("rendering/renderer/rendering_method")]
 	_log.store_line("# DopamineLord, métricas. " + info)
 	_log.store_line("# Una línea cada 2 s. fis = tiempo del tick de física, draws = llamadas de dibujo.")
 	_log.store_line("# aparecidos_a_la_vista debería ser 0. proyectiles_alargados = proyectiles que habrían desaparecido sin

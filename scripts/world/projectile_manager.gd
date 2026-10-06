@@ -19,7 +19,8 @@ const MAX_KINDS := 32
 const FLOATS_PER_INSTANCE := 12  # transform 2D (8) + datos propios (4)
 const BALL_SEGMENTS := 16
 ## Se dibujan los proyectiles hasta este margen más allá de la pantalla.
-const CULL_HALF := Vector2(320, 180) + Vector2(40, 40)
+const CULL_MARGIN := 48.0
+const PUFF_MAX := 64
 ## Topes de proyectiles vivos, por jugador y en total.
 @export var max_per_player: int = 150
 @export var max_total: int = 600
@@ -426,6 +427,7 @@ func _ev_end(ids: PackedInt32Array) -> void:
 		var proj: Proj = _view.get(id)
 		if proj == null:
 			continue
+		_puff(proj)
 		if proj.drawn:
 			_view.erase(id)
 		else:
@@ -433,6 +435,13 @@ func _ev_end(ids: PackedInt32Array) -> void:
 			# varios ticks de física seguidos): se deja un frame más para que se vea.
 			proj.ending = true
 			stat_unseen += 1
+
+
+## Un aro pequeño donde acaba un proyectil, para que no se esfume de golpe.
+func _puff(proj: Proj) -> void:
+	if _fx.size() >= PUFF_MAX * 4 or not proj.drawn:
+		return
+	_fx.append({"position": proj.position, "radius": proj.radius * 2.2, "color": proj.data.color, "age": 0.0})
 
 
 # --- Vista (todos) ---------------------------------------------------------------------
@@ -465,9 +474,9 @@ func _age_list(list: Array[Dictionary], delta: float, life: float) -> void:
 func _fill_instances() -> void:
 	var count := 0
 	if not players.is_empty() and not _view.is_empty():
-		var center: Vector2 = players[0].position
-		var low := center - CULL_HALF
-		var high := center + CULL_HALF
+		var view := ViewInfo.world_rect(get_viewport(), CULL_MARGIN)
+		var low := view.position
+		var high := view.end
 		var needed := _view.size() * FLOATS_PER_INSTANCE
 		if needed > _buffer.size():
 			_buffer.resize(maxi(needed, maxi(_buffer.size() * 2, 128 * FLOATS_PER_INSTANCE)))

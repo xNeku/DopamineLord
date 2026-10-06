@@ -42,7 +42,7 @@ signal player_died(peer_id: int)
 @export var spawn_interval: float = 2.5
 ## Mitad del tamaño de lo que se ve en pantalla, en píxeles. Los mobs aparecen más allá, fuera
 ## de la vista, y vienen hacia el jugador.
-@export var spawn_view_half: Vector2 = Vector2(340, 200)
+@export var spawn_view_half: Vector2 = Vector2(400, 260)
 ## Distancia (en el suelo plano) a la que un mob que se ha quedado atrás desaparece.
 @export var despawn_distance: float = 900.0
 @export var snapshot_interval: float = 0.1
@@ -702,6 +702,7 @@ func hit_mob(mob: Mob, damage: int, attacker_peer: int, is_crit: bool = false) -
 	if mob.health > 0:
 		return false
 	mob.dying = true
+	_renderer.add_ghost(mob)
 	_forget_mob(mob.mob_id)
 	_pending_deaths.append(mob.mob_id)
 	stats["kills"] += 1
@@ -852,6 +853,7 @@ func _mob_events(ids: PackedInt32Array, damages: PackedInt32Array, remainings: P
 	for id in deaths:
 		var dead: Mob = _mobs.get(id)
 		if dead != null:
+			_renderer.add_ghost(dead)
 			_forget_mob(id)
 
 
