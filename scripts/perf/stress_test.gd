@@ -1,7 +1,7 @@
 class_name StressTest
 extends Node
 ## Modo estrés para medir: mantiene N mobs y N proyectiles vivos a la vez, mueran o no.
-## F4 (`debug_stress_mobs`) y F5 (`debug_stress_proj`) suben el objetivo por escalones.
+## Con `--stress`, F4 (`debug_stress_mobs`) y F5 (`debug_stress_proj`) suben el objetivo por escalones.
 ## Por línea de comandos: `--stress-mobs=200 --stress-proj=200`.
 ## Solo hace algo en el host. Los proyectiles son de prueba (`debug_stress_bolt`).
 
@@ -16,9 +16,12 @@ var target_mobs: int = 0
 var target_projectiles: int = 0
 
 var _angle: float = 0.0
+## Las teclas F4/F5 solo funcionan si el juego se abre con `--stress` (para no tocarlas sin querer).
+var _keys_enabled: bool = false
 
 
 func _ready() -> void:
+	_keys_enabled = "--stress" in OS.get_cmdline_user_args()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--stress-mobs="):
 			target_mobs = int(arg.get_slice("=", 1))
@@ -28,6 +31,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not _keys_enabled:
+		return
 	if event.is_action_pressed("debug_stress_mobs"):
 		target_mobs = _next_step(target_mobs)
 		print("[stress] mobs objetivo: ", target_mobs)

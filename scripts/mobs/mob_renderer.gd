@@ -89,8 +89,13 @@ func _update_bands(delta: float) -> void:
 	var high := center + VIEW_HALF + CULL_MARGIN
 	var thresholds := _thresholds
 	var threshold_count := thresholds.size()
+	# El dibujo va a más fotogramas que la física: el mob se adelanta lo que le toca entre dos
+	# ticks (con su velocidad), para que se mueva suave a cualquier frecuencia de pantalla.
+	var ahead := Engine.get_physics_interpolation_fraction() / Engine.physics_ticks_per_second
 	for mob: Mob in mobs.values():
 		var position := mob.position
+		if not mob.is_puppet:
+			position += mob.velocity * ahead
 		if position.x < low.x or position.x > high.x or position.y < low.y or position.y > high.y:
 			continue
 		var band := 0

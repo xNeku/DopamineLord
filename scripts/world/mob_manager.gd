@@ -51,6 +51,9 @@ signal player_died(peer_id: int)
 ## Todos los jugadores de la partida. Lo rellena el mundo.
 var players: Array[Player] = []
 var spawn_point: Vector2 = Vector2.ZERO
+## Para las métricas: mobs que han aparecido dentro de la vista de algún jugador (no debería pasar).
+var stat_spawned_in_view: int = 0
+var stat_spawned: int = 0
 ## Contadores para las pruebas con bots.
 var stats: Dictionary = {"hits": 0, "kills": 0, "damage_taken": 0}
 
@@ -133,17 +136,27 @@ func mobs_near_ground(ground_center: Vector2, ground_radius: float) -> Array[Mob
 	return result
 
 
-## Solo para pruebas de rendimiento: hace aparecer `count` mobs de golpe en un anillo alrededor
-## de `center` (en pantalla), a la vista y fuera de ella.
-func debug_spawn(count: int, center: Vector2) -> void:
+## Solo para pruebas de rendimiento: hace aparecer `count` mobs de golpe, igual que el reparto
+## normal: siempre fuera de la vista, alrededor de un jugador.
+func debug_spawn(count: int, anchor_position: Vector2) -> void:
 	for i in count:
 		var kind := _pick_kind()
 		if kind == &"":
 			return
-		var spot := center + Iso.to_screen(Vector2.from_angle(randf() * TAU) * randf_range(120.0, 420.0))
+		var spot := _offscreen_spot(anchor_position) + Iso.to_screen(Vector2.from_angle(randf() * TAU) * randf_range(0.0, 60.0))
 		var id := _next_id
 		_next_id += 1
+		_note_spawn(spot)
 		_spawn_mob.rpc(id, kind, spot)
+
+
+## Un punto (en pantalla) justo fuera de la vista de quien está en `anchor_position`, en una
+## dirección al azar. Los mobs nunca deben aparecer a la vista del jugador.
+func _offscreen_spot(anchor_position: Vector2) -> Vector2:
+	var direction := Vector2.from_angle(randf() * TAU)
+	var out_x := spawn_view_half.x / maxf(absf(direction.x), 0.001)
+	var out_y := spawn_view_half.y / maxf(absf(direction.y) * Iso.Y_SCALE, 0.001)
+	return anchor_position + Iso.to_screen(direction * (minf(out_x, out_y) + randf_range(30.0, 90.0)))
 
 
 func _rebuild_grid() -> void:
@@ -257,10 +270,7 @@ func _try_spawn() -> void:
 	var data := GameData.mob(kind)
 	var anchor: Player = alive.pick_random()
 	# Fuera de la vista: el radio mínimo para que esté más allá del borde de la pantalla.
-	var direction := Vector2.from_angle(randf() * TAU)
-	var out_x := spawn_view_half.x / maxf(absf(direction.x), 0.001)
-	var out_y := spawn_view_half.y / maxf(absf(direction.y) * Iso.Y_SCALE, 0.001)
-	var center := anchor.position + Iso.to_screen(direction * (minf(out_x, out_y) + randf_range(30.0, 90.0)))
+	var center := _offscreen_spot(anchor.position)
 	var count := mini(randi_range(data.group_min, data.group_max), max_mobs - _mobs.size())
 	if data.max_alive > 0:
 		count = mini(count, data.max_alive - _alive_of(kind))
@@ -270,6 +280,7 @@ func _try_spawn() -> void:
 			continue
 		var id := _next_id
 		_next_id += 1
+		_note_spawn(spot)
 		_spawn_mob.rpc(id, kind, spot)
 
 
@@ -950,6 +961,15 @@ func _sync(ids: PackedInt32Array, kinds: PackedStringArray, positions: PackedVec
 		var player := _player_by_peer(peer_ids[i])
 		if player != null:
 			player.set_health(player_healths[i])
+
+
+## Cuenta para las métricas si un mob aparece a la vista de algún jugador.
+func _note_spawn(spot: Vector2) -> void:
+	stat_spawned += 1
+	for player in players:
+		if ViewRange.contains(player.position, spot):
+			stat_spawned_in_view += 1
+			return
 
 
 func _create_mob(id: int, kind: StringName, spot: Vector2, health: int) -> void:

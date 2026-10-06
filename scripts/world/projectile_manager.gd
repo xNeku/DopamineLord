@@ -49,6 +49,20 @@ class Proj:
 	var dead: bool = false
 	## Tipo en el dibujo en bloque.
 	var kind: int = 0
+	## Solo en el host: todavía no se ha mandado el evento de que ha nacido.
+	var fresh: bool = true
+	## Solo en el dibujo: ya se ha escrito en la MultiMesh al menos una vez, y ya ha terminado
+	## (se quita después de dibujarlo, para que nunca desaparezca sin haberse visto).
+	var drawn: bool = false
+	var ending: bool = false
+
+## Para las métricas: proyectiles que nacen y terminan en el mismo tick (nunca llegan a dibujarse),
+## y cuántos se han dibujado en el último frame.
+var stat_instant: int = 0
+var stat_fired: int = 0
+var stat_drawn: int = 0
+## Cuántos proyectiles habrían desaparecido sin llegar a dibujarse ni un frame (se alarga su vida).
+var stat_unseen: int = 0
 
 ## Todos los jugadores y el gestor de mobs. Los rellena el mundo.
 var players: Array[Player] = []
@@ -143,6 +157,7 @@ func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: V
 				proj.bounce_range = skill.bounce_range
 				proj.bounce_gain = skill.damage_gain
 	_sim[proj.id] = proj
+	stat_fired += 1
 	_per_owner[peer_id] = _per_owner.get(peer_id, 0) + 1
 	_spawn_ids.append(proj.id)
 	_spawn_kinds.append(String(projectile_id))
@@ -301,6 +316,8 @@ func _end(proj: Proj) -> void:
 	if proj.dead:
 		return
 	proj.dead = true
+	if proj.fresh:
+		stat_instant += 1
 	_end_ids.append(proj.id)
 	_per_owner[proj.owner_peer] = maxi(0, _per_owner.get(proj.owner_peer, 1) - 1)
 
@@ -328,6 +345,10 @@ func _flush() -> void:
 		if online:
 			_ev_end.rpc(_end_ids)
 		_ev_end(_end_ids)
+	for id in _spawn_ids:
+		var fresh: Proj = _sim.get(id)
+		if fresh != null:
+			fresh.fresh = false
 	_spawn_ids = PackedInt32Array()
 	_spawn_kinds = PackedStringArray()
 	_spawn_peers = PackedInt32Array()
@@ -402,7 +423,16 @@ func _ev_redirect(ids: PackedInt32Array, positions: PackedVector2Array, dirs: Pa
 @rpc("authority", "reliable")
 func _ev_end(ids: PackedInt32Array) -> void:
 	for id in ids:
-		_view.erase(id)
+		var proj: Proj = _view.get(id)
+		if proj == null:
+			continue
+		if proj.drawn:
+			_view.erase(id)
+		else:
+			# Nació y terminó antes de que se dibujara ni un frame (un golpe a bocajarro, o
+			# varios ticks de física seguidos): se deja un frame más para que se vea.
+			proj.ending = true
+			stat_unseen += 1
 
 
 # --- Vista (todos) ---------------------------------------------------------------------
@@ -442,9 +472,15 @@ func _fill_instances() -> void:
 		if needed > _buffer.size():
 			_buffer.resize(maxi(needed, maxi(_buffer.size() * 2, 128 * FLOATS_PER_INSTANCE)))
 		var buffer := _buffer
+		# El dibujo va a más fotogramas que la física: cada proyectil se adelanta lo que le toca
+		# entre dos ticks, para que se mueva suave a cualquier frecuencia de pantalla.
+		var ahead := Engine.get_physics_interpolation_fraction() / Engine.physics_ticks_per_second
+		var finished: Array[int] = []
 		for proj: Proj in _view.values():
-			var position := proj.position
+			var position := proj.position + Iso.to_screen(proj.direction * proj.data.speed * ahead)
 			if position.x < low.x or position.x > high.x or position.y < low.y or position.y > high.y:
+				if proj.ending:
+					finished.append(proj.id)
 				continue
 			var offset := count * FLOATS_PER_INSTANCE
 			buffer[offset] = 1.0
@@ -465,12 +501,18 @@ func _fill_instances() -> void:
 				buffer[offset + 10] = proj.age * 6.0
 				buffer[offset + 11] = 0.0
 			count += 1
+			proj.drawn = true
+			if proj.ending:
+				finished.append(proj.id)
+		for id in finished:
+			_view.erase(id)
 		if count > 0:
 			var capacity := buffer.size() / FLOATS_PER_INSTANCE
 			if _multimesh.instance_count != capacity:
 				_multimesh.instance_count = capacity
 			_multimesh.buffer = buffer
 	_multimesh.visible_instance_count = count
+	stat_drawn = count
 
 
 ## Número de tipo para un proyectil (color y forma viajan en uniformes del shader).
