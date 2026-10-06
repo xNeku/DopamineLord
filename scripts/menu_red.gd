@@ -27,7 +27,7 @@ func _ready() -> void:
 	Net.connected.connect(_enter_world)
 	Net.connection_failed.connect(_on_connection_failed)
 	_solo.grab_focus()
-	_run_command_line()
+	_run_command_line.call_deferred()
 
 
 func _run_command_line() -> void:

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpinShootSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/spin_shoot_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"fuck_all"
+display_name = "Fuck all"
+cooldown = 2.0
+duration = 5.0
+turns_per_second = 2.0
+shots_per_second = 15.0
+arrows_per_shot = 3
+projectile_id = &"volley_arrow"
+damage_mult = 0.6
+move_speed_mult = 0.6

@@ -69,6 +69,7 @@ var _spin_angle: float = 0.0
 var _spin_radius: float = 48.0
 var _spin_tps: float = 3.0
 var _buffed: bool = false
+var _buff_tint: Color = Color(1.35, 1.05, 0.7)
 var _dead: bool = false
 
 
@@ -126,9 +127,10 @@ func set_spin(active: bool, radius: float, turns_per_second: float) -> void:
 	queue_redraw()
 
 
-## Aura de Melee Boost.
-func set_buff(active: bool) -> void:
+## Tinte de los buffs (Melee Boost, Speed out...).
+func set_buff(active: bool, tint: Color = Color(1.35, 1.05, 0.7)) -> void:
 	_buffed = active
+	_buff_tint = tint
 	_refresh_tint()
 
 
@@ -148,7 +150,7 @@ func _refresh_tint() -> void:
 	if _dead:
 		_body.modulate = Color(0.55, 0.55, 0.55)
 	elif _buffed:
-		_body.modulate = Color(1.35, 1.05, 0.7)
+		_body.modulate = _buff_tint
 	else:
 		_body.modulate = Color.WHITE
 
@@ -199,7 +201,7 @@ func set_dead(dead: bool) -> void:
 func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.4) * _shadow_scale)
 	draw_circle(Vector2.ZERO, 13.0, Color(0, 0, 0, 0.3))
-	if _spinning:
+	if _spinning and _spin_radius > 0.0:
 		for height in [0.0, -16.0]:
 			draw_set_transform(Vector2(0, height), 0.0, Vector2(1.0, Iso.Y_SCALE))
 			for k in range(3):

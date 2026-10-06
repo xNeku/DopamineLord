@@ -8,3 +8,8 @@ extends Resource
 @export var display_name: String = ""
 ## Segundos de espera hasta poder volver a usarla.
 @export var cooldown: float = 10.0
+
+
+## Las pasivas se disparan solas y no ocupan botón.
+func is_passive() -> bool:
+	return false

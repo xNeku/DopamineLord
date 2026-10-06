@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="BounceSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/bounce_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"bounce"
+display_name = "Bounce"
+max_bounces = 6
+bounce_range = 160.0
+damage_gain = 0.25

@@ -231,6 +231,14 @@ func _blocked(spot: Vector2) -> bool:
 func _think(mob: Mob, delta: float) -> void:
 	if mob.is_leaping():
 		return
+	if mob.knock_left > 0.0:
+		mob.knock_left -= delta
+		mob.windup = false
+		mob.velocity = mob.knock_velocity
+		mob.move_and_slide()
+		if mob.knock_left <= 0.0:
+			_end_knock(mob)
+		return
 	var target := _nearest_player(mob.position)
 	if target == null:
 		mob.velocity = Vector2.ZERO
@@ -393,7 +401,7 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 	aim = aim.normalized()
 	if attacker.class_data.basic_projectile != &"":
 		if projectiles != null:
-			projectiles.fire(peer_id, attacker.class_data.basic_projectile, position, aim)
+			projectiles.fire(peer_id, attacker.class_data.basic_projectile, position, aim, 1.0, true)
 		return
 	var half_arc := deg_to_rad(attacker.attack_arc_degrees) * 0.5
 	for mob in mobs_near_ground(Iso.to_ground(position), attacker.effective_attack_range()):
@@ -407,11 +415,12 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 
 
 ## Hace daño a un mob (solo el host). Lo usan el ataque básico, las skills y los proyectiles.
+## Devuelve true si lo mata.
 ## El mob se actualiza al instante en el host; los clientes reciben los golpes y muertes
 ## juntos cada EVENT_INTERVAL, no uno por golpe.
-func hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
+func hit_mob(mob: Mob, damage: int, attacker_peer: int, is_crit: bool = false) -> bool:
 	if mob.dying:
-		return
+		return false
 	var attacker := _player_by_peer(attacker_peer)
 	if attacker != null and attacker.life_steal > 0.0:
 		# Robo de vida sobre el daño real, sin contar lo que sobra al rematar.
@@ -419,19 +428,21 @@ func hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
 	mob.health = maxi(mob.health - damage, 0)
 	mob.flash()
 	stats["hits"] += 1
-	var entry: Array = _pending_hits.get(mob.mob_id, [0, 0, mob.position])
+	var entry: Array = _pending_hits.get(mob.mob_id, [0, 0, mob.position, false])
 	entry[0] += damage
 	entry[1] = mob.health
 	entry[2] = mob.position
+	entry[3] = entry[3] or is_crit
 	_pending_hits[mob.mob_id] = entry
 	if mob.health > 0:
-		return
+		return false
 	mob.dying = true
 	_mobs.erase(mob.mob_id)
 	_pending_deaths.append(mob.mob_id)
 	stats["kills"] += 1
 	mob.queue_free()
 	mob_killed.emit(mob.data.id, mob.position, attacker_peer)
+	return true
 
 
 ## Manda a los clientes los golpes y las muertes acumulados, en un solo mensaje cada uno.
@@ -442,19 +453,47 @@ func _flush_events() -> void:
 	var damages := PackedInt32Array()
 	var remainings := PackedInt32Array()
 	var positions := PackedVector2Array()
+	var crits := PackedByteArray()
 	for id in _pending_hits:
 		var entry: Array = _pending_hits[id]
 		ids.append(id)
 		damages.append(entry[0])
 		remainings.append(entry[1])
 		positions.append(entry[2])
+		crits.append(1 if entry[3] else 0)
 	var deaths := _pending_deaths
 	_pending_hits = {}
 	_pending_deaths = PackedInt32Array()
 	if multiplayer.get_peers().is_empty():
-		_mob_events(ids, damages, remainings, positions, deaths)
+		_mob_events(ids, damages, remainings, positions, crits, deaths)
 	else:
-		_mob_events.rpc(ids, damages, remainings, positions, deaths)
+		_mob_events.rpc(ids, damages, remainings, positions, crits, deaths)
+
+
+## Empuja a un mob `ground_offset` (suelo plano) en `duration` segundos. Los pesados se mueven
+## menos. Si el empujón acaba fuera de la vista de `crit_peer`, recibe `crit_damage` de crítico.
+func knock_mob(mob: Mob, ground_offset: Vector2, duration: float, crit_damage: int = 0, crit_peer: int = 0) -> void:
+	var factor := 1.0 - mob.data.knockback_resist
+	if mob.dying or mob.is_leaping() or factor <= 0.0 or duration <= 0.0:
+		return
+	mob.knock_velocity = Iso.to_screen(ground_offset * factor) / duration
+	mob.knock_left = duration
+	mob.windup = false
+	if crit_damage > mob.knock_crit_damage:
+		mob.knock_crit_damage = crit_damage
+		mob.knock_crit_peer = crit_peer
+
+
+func _end_knock(mob: Mob) -> void:
+	var damage := mob.knock_crit_damage
+	var peer := mob.knock_crit_peer
+	mob.knock_crit_damage = 0
+	mob.knock_crit_peer = 0
+	if damage <= 0:
+		return
+	var player := _player_by_peer(peer)
+	if player != null and not ViewRange.contains(player.position, mob.position):
+		hit_mob(mob, damage, peer, true)
 
 
 ## Junta la regeneración y reparte la vida pendiente cada HEAL_INTERVAL. Solo el host.
@@ -518,7 +557,7 @@ func _snapshot(ids: PackedInt32Array, positions: PackedVector2Array, healths: Pa
 ## Golpes y muertes de los últimos EVENT_INTERVAL segundos, juntos. En el host el mob ya está
 ## actualizado: aquí solo se enseñan los números. Los clientes ponen la vida y quitan los muertos.
 @rpc("authority", "call_local", "reliable")
-func _mob_events(ids: PackedInt32Array, damages: PackedInt32Array, remainings: PackedInt32Array, positions: PackedVector2Array, deaths: PackedInt32Array) -> void:
+func _mob_events(ids: PackedInt32Array, damages: PackedInt32Array, remainings: PackedInt32Array, positions: PackedVector2Array, crits: PackedByteArray, deaths: PackedInt32Array) -> void:
 	var is_host := multiplayer.is_server()
 	for i in ids.size():
 		var mob: Mob = _mobs.get(ids[i])
@@ -528,7 +567,10 @@ func _mob_events(ids: PackedInt32Array, damages: PackedInt32Array, remainings: P
 				mob.set_health(remainings[i])
 				mob.flash()
 			at = mob.position
-		FloatingText.spawn(self, at + Vector2(0, -26), str(damages[i]), Color(1.0, 0.9, 0.4))
+		if crits[i] != 0:
+			FloatingText.spawn(self, at + Vector2(0, -30), "%d!" % damages[i], Color(1.0, 0.45, 0.15))
+		else:
+			FloatingText.spawn(self, at + Vector2(0, -26), str(damages[i]), Color(1.0, 0.9, 0.4))
 	if is_host:
 		return
 	for id in deaths:

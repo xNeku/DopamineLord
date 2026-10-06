@@ -32,6 +32,16 @@ enum Shape { BALL, ARROW }
 ## Cuánto sube el daño con cada enemigo golpeado (0.2 = +20% por golpe).
 @export var grow_damage_per_hit: float = 0.0
 
+@export_group("Empuje")
+## Cuánto empuja a cada enemigo que golpea, en la dirección del proyectil (suelo plano).
+@export var knockback: float = 0.0
+@export var knockback_time: float = 0.25
+## Si es > 0: el enemigo empujado que acaba fuera de la vista del lanzador recibe un golpe
+## crítico de este múltiplo del daño del proyectil.
+@export var crit_mult: float = 0.0
+## Si es true, vuela hasta salir de la vista del lanzador (en vez de parar en `max_range`).
+@export var until_offscreen: bool = false
+
 @export_group("Explosión")
 ## 0 = no explota.
 @export var explode_radius: float = 0.0

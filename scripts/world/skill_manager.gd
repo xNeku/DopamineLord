@@ -16,10 +16,12 @@ const COOLDOWN_SLACK := 0.4
 ## Todos los jugadores de la partida y el gestor de mobs. Los rellena el mundo.
 var players: Array[Player] = []
 var mobs: MobManager
+var projectiles: ProjectileManager
 
 var _spins: Array[Dictionary] = []
 var _boomerangs: Dictionary = {}
 var _rains: Array[Dictionary] = []
+var _shooters: Array[Dictionary] = []
 var _nodes: Dictionary = {}
 var _next_id: int = 1
 var _snapshot_timer: float = 0.0
@@ -39,6 +41,7 @@ func _physics_process(delta: float) -> void:
 	_tick_spins(delta)
 	_tick_boomerangs(delta)
 	_tick_rains(delta)
+	_tick_shooters(delta)
 	_snapshot_timer += delta
 	if _snapshot_timer >= SNAPSHOT_INTERVAL:
 		_snapshot_timer = 0.0
@@ -65,6 +68,12 @@ func _execute(peer_id: int, slot: int, position: Vector2, direction: Vector2, ta
 	elif skill is SpinSkillData:
 		_spin_start.rpc(peer_id, skill.id)
 		_spins.append({"peer": peer_id, "data": skill, "left": skill.duration, "tick": 0.0})
+	elif skill is ProjectileSkillData:
+		if projectiles != null:
+			projectiles.fire(peer_id, skill.projectile_id, position, aim, skill.damage_mult)
+	elif skill is SpinShootSkillData:
+		_spin_start.rpc(peer_id, skill.id)
+		_shooters.append({"peer": peer_id, "data": skill, "left": skill.duration, "accum": 0.0, "angle": atan2(aim.y, aim.x)})
 	elif skill is BoomerangSkillData:
 		var id := _take_id()
 		_boomerang_spawn.rpc(id, peer_id, skill.id, position, aim)
@@ -99,6 +108,25 @@ func _tick_spins(delta: float) -> void:
 			spin["tick"] -= data.tick_interval
 			for mob in mobs.mobs_in_circle(caster.position, data.radius):
 				mobs.hit_mob(mob, data.damage, spin["peer"])
+
+
+## Fuck all: mientras gira, suelta flechas en círculo. Se hace en bloque: varias flechas por
+## disparo, y el tope de proyectiles del jugador evita que se desmadre.
+func _tick_shooters(delta: float) -> void:
+	for shooter in _shooters.duplicate():
+		var caster := _player_by_peer(shooter["peer"])
+		var data: SpinShootSkillData = shooter["data"]
+		shooter["left"] -= delta
+		if caster == null or caster.is_dead or shooter["left"] <= 0.0 or projectiles == null:
+			_shooters.erase(shooter)
+			continue
+		shooter["angle"] += TAU * data.turns_per_second * delta
+		shooter["accum"] += data.shots_per_second * delta
+		while shooter["accum"] >= 1.0:
+			shooter["accum"] -= 1.0
+			for k in data.arrows_per_shot:
+				var angle: float = shooter["angle"] + TAU * k / data.arrows_per_shot
+				projectiles.fire(shooter["peer"], data.projectile_id, caster.position, Vector2.from_angle(angle), data.damage_mult)
 
 
 func _tick_boomerangs(delta: float) -> void:
@@ -200,8 +228,13 @@ func _buff_start(peer_id: int, skill_id: StringName) -> void:
 @rpc("authority", "call_local", "reliable")
 func _spin_start(peer_id: int, skill_id: StringName) -> void:
 	var player := _player_by_peer(peer_id)
-	if player != null:
-		player.start_spin(GameData.skill(skill_id) as SpinSkillData)
+	if player == null:
+		return
+	var skill := GameData.skill(skill_id)
+	if skill is SpinSkillData:
+		player.start_spin(skill.duration, skill.radius, skill.turns_per_second, skill.move_speed_mult)
+	elif skill is SpinShootSkillData:
+		player.start_spin(skill.duration, 0.0, skill.turns_per_second, skill.move_speed_mult)
 
 
 @rpc("authority", "call_local", "reliable")

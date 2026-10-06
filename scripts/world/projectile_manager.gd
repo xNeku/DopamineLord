@@ -30,7 +30,13 @@ class Proj:
 	var radius: float = 5.0
 	## Solo en el host.
 	var damage: int = 0
+	var base_damage: int = 0
 	var hit_ids: Dictionary = {}
+	## Rebote del ataque básico (pasiva Bounce): rebotes que le quedan, alcance y ganancia.
+	var bounces_left: int = 0
+	var bounces_done: int = 0
+	var bounce_range: float = 0.0
+	var bounce_gain: float = 0.0
 	var dead: bool = false
 
 ## Todos los jugadores y el gestor de mobs. Los rellena el mundo.
@@ -56,6 +62,9 @@ var _boom_positions := PackedVector2Array()
 var _boom_radii := PackedFloat32Array()
 var _boom_colors := PackedColorArray()
 var _end_ids := PackedInt32Array()
+var _redirect_ids := PackedInt32Array()
+var _redirect_positions := PackedVector2Array()
+var _redirect_dirs := PackedVector2Array()
 
 
 func _ready() -> void:
@@ -67,8 +76,9 @@ func projectile_count() -> int:
 
 
 ## Dispara un proyectil (solo el host). `origin` en pantalla, `direction` en el suelo plano.
-## Devuelve su id, o 0 si se ha llegado a un tope.
-func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: Vector2, damage_mult: float = 1.0) -> int:
+## `basic` es true si es el ataque básico (la pasiva Bounce solo cuenta ahí). Devuelve su id,
+## o 0 si se ha llegado a un tope.
+func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: Vector2, damage_mult: float = 1.0, basic: bool = false) -> int:
 	if _sim.size() >= max_total or _per_owner.get(peer_id, 0) >= max_per_player:
 		return 0
 	var data := GameData.projectile(projectile_id)
@@ -84,6 +94,13 @@ func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: V
 	proj.direction = direction.normalized() if direction.length_squared() > 0.0 else Vector2.RIGHT
 	proj.radius = data.radius
 	proj.damage = maxi(1, roundi(caster.attack_damage * data.damage_mult * damage_mult))
+	proj.base_damage = proj.damage
+	if basic:
+		for skill in caster.skills:
+			if skill is BounceSkillData:
+				proj.bounces_left = skill.max_bounces
+				proj.bounce_range = skill.bounce_range
+				proj.bounce_gain = skill.damage_gain
 	_sim[proj.id] = proj
 	_per_owner[peer_id] = _per_owner.get(peer_id, 0) + 1
 	_spawn_ids.append(proj.id)
@@ -135,6 +152,10 @@ func _tick_sim(delta: float) -> void:
 				break
 		if not proj.dead and (proj.traveled >= data.max_range or proj.age >= data.lifetime):
 			_end(proj)
+		elif not proj.dead and data.until_offscreen:
+			var caster := _player_by_peer(proj.owner_peer)
+			if caster == null or not ViewRange.contains(caster.position, proj.position):
+				_end(proj)
 	# Los terminados se quitan fuera del bucle de arriba.
 	for id in _end_ids:
 		_sim.erase(id)
@@ -145,7 +166,12 @@ func _hit(proj: Proj, mob: Mob) -> void:
 	proj.hit_ids[mob.mob_id] = true
 	var damage := roundi(proj.damage * (1.0 + data.grow_damage_per_hit * proj.hits))
 	proj.hits += 1
-	mobs.hit_mob(mob, damage, proj.owner_peer)
+	if data.knockback > 0.0:
+		var crit := roundi(damage * data.crit_mult) if data.crit_mult > 0.0 else 0
+		mobs.knock_mob(mob, proj.direction * data.knockback, data.knockback_time, crit, proj.owner_peer)
+	var killed := mobs.hit_mob(mob, damage, proj.owner_peer)
+	if killed and proj.bounces_left > 0 and _try_bounce(proj):
+		return
 	if data.grow_radius_per_hit > 0.0:
 		proj.radius = data.radius_after(proj.hits)
 		_grow_ids.append(proj.id)
@@ -157,6 +183,31 @@ func _hit(proj: Proj, mob: Mob) -> void:
 			return
 	if data.pierce >= 0 and proj.hits > data.pierce:
 		_end(proj)
+
+
+## Pasiva Bounce: tras matar, la flecha sigue hacia el enemigo más cercano con más daño.
+func _try_bounce(proj: Proj) -> bool:
+	var ground := Iso.to_ground(proj.position)
+	var best: Mob = null
+	var best_distance := INF
+	for mob in mobs.mobs_near_ground(ground, proj.bounce_range):
+		if proj.hit_ids.has(mob.mob_id):
+			continue
+		var distance := mob.ground_position.distance_to(ground)
+		if distance <= proj.bounce_range + mob.data.radius and distance < best_distance:
+			best = mob
+			best_distance = distance
+	if best == null:
+		return false
+	proj.bounces_left -= 1
+	proj.bounces_done += 1
+	proj.damage = roundi(proj.base_damage * (1.0 + proj.bounce_gain * proj.bounces_done))
+	proj.direction = (best.ground_position - ground).normalized()
+	proj.traveled = 0.0
+	_redirect_ids.append(proj.id)
+	_redirect_positions.append(proj.position)
+	_redirect_dirs.append(proj.direction)
+	return true
 
 
 func _explode(proj: Proj) -> void:
@@ -197,6 +248,10 @@ func _flush() -> void:
 		if online:
 			_ev_boom.rpc(_boom_positions, _boom_radii, _boom_colors)
 		_ev_boom(_boom_positions, _boom_radii, _boom_colors)
+	if not _redirect_ids.is_empty():
+		if online:
+			_ev_redirect.rpc(_redirect_ids, _redirect_positions, _redirect_dirs)
+		_ev_redirect(_redirect_ids, _redirect_positions, _redirect_dirs)
 	if not _end_ids.is_empty():
 		if online:
 			_ev_end.rpc(_end_ids)
@@ -212,6 +267,9 @@ func _flush() -> void:
 	_boom_radii = PackedFloat32Array()
 	_boom_colors = PackedColorArray()
 	_end_ids = PackedInt32Array()
+	_redirect_ids = PackedInt32Array()
+	_redirect_positions = PackedVector2Array()
+	_redirect_dirs = PackedVector2Array()
 
 
 # --- Eventos: del host a los demás (el host también los aplica en local) ---------------
@@ -245,6 +303,15 @@ func _ev_grow(ids: PackedInt32Array, hits: PackedInt32Array) -> void:
 func _ev_boom(positions: PackedVector2Array, radii: PackedFloat32Array, colors: PackedColorArray) -> void:
 	for i in positions.size():
 		_fx.append({"position": positions[i], "radius": radii[i], "color": colors[i], "age": 0.0})
+
+
+@rpc("authority", "reliable")
+func _ev_redirect(ids: PackedInt32Array, positions: PackedVector2Array, dirs: PackedVector2Array) -> void:
+	for i in ids.size():
+		var proj: Proj = _view.get(ids[i])
+		if proj != null:
+			proj.position = positions[i]
+			proj.direction = dirs[i]
 
 
 @rpc("authority", "reliable")

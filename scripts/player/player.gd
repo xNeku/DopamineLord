@@ -66,11 +66,12 @@ var skill_cooldown_left: Array[float] = []
 ## Mejoras temporales del ataque básico (Melee Boost).
 var attack_speed_mult: float = 1.0
 var attack_range_mult: float = 1.0
+var buff_move_mult: float = 1.0
 var buff_time_left: float = 0.0
 ## Girando (Spin to Win).
 var is_spinning: bool = false
 var spin_time_left: float = 0.0
-var _spin_data: SpinSkillData
+var _spin_move_mult: float = 1.0
 
 ## Id de red del dueño de este jugador. Si is_remote, lo controla otro jugador por red.
 var peer_id: int = 1
@@ -159,7 +160,7 @@ func request_jump(direction: Vector2) -> bool:
 		return false
 	if direction.length_squared() < 0.01:
 		direction = facing
-	var distance := minf(move_speed * jump_distance_in_seconds, jump_max_distance)
+	var distance := minf(effective_move_speed() * jump_distance_in_seconds, jump_max_distance)
 	var wanted := position + direction.normalized() * Vector2(1.0, iso_y_scale) * distance
 	var landing := _resolve_landing(position, wanted)
 	if landing.distance_to(position) < LANDING_STEP:
@@ -201,6 +202,11 @@ func _is_ranged() -> bool:
 	return class_data != null and class_data.basic_projectile != &""
 
 
+## Velocidad de movimiento real, con los buffs activos (no incluye el giro).
+func effective_move_speed() -> float:
+	return move_speed * buff_move_mult
+
+
 ## Alcance real del golpe, con las mejoras activas.
 func effective_attack_range() -> float:
 	return attack_range * attack_range_mult
@@ -209,7 +215,7 @@ func effective_attack_range() -> float:
 ## Orden de usar la skill del hueco `slot` (0 a 3). La resuelve el host. `direction` va en el
 ## suelo plano y `target` es el punto al que apunta. Devuelve false si no puede.
 func request_skill(slot: int, direction: Vector2, target: Vector2) -> bool:
-	if is_dead or slot < 0 or slot >= skills.size() or skills[slot] == null or skill_cooldown_left[slot] > 0.0:
+	if is_dead or slot < 0 or slot >= skills.size() or skills[slot] == null or skills[slot].is_passive() or skill_cooldown_left[slot] > 0.0:
 		return false
 	if direction.length_squared() < 0.01:
 		direction = facing
@@ -222,15 +228,17 @@ func request_skill(slot: int, direction: Vector2, target: Vector2) -> bool:
 func apply_buff(data: BuffSkillData) -> void:
 	attack_speed_mult = data.attack_speed_mult
 	attack_range_mult = data.attack_range_mult
+	buff_move_mult = data.move_speed_mult
 	buff_time_left = data.duration
-	visual.set_buff(true)
+	visual.set_buff(true, data.tint)
 
 
-func start_spin(data: SpinSkillData) -> void:
-	_spin_data = data
+## Empieza a girar. Con `radius` 0 solo gira el personaje (sin aros de cuchillas).
+func start_spin(duration: float, radius: float, turns_per_second: float, move_mult: float) -> void:
+	_spin_move_mult = move_mult
 	is_spinning = true
-	spin_time_left = data.duration
-	visual.set_spin(true, data.radius, data.turns_per_second)
+	spin_time_left = duration
+	visual.set_spin(true, radius, turns_per_second)
 
 
 func stop_spin() -> void:
@@ -256,8 +264,9 @@ func apply_knockback(ground_offset: Vector2) -> void:
 func _clear_buff() -> void:
 	attack_speed_mult = 1.0
 	attack_range_mult = 1.0
+	buff_move_mult = 1.0
 	buff_time_left = 0.0
-	visual.set_buff(false)
+	visual.set_buff(false, Color.WHITE)
 
 
 func _tick_timers(delta: float) -> void:
@@ -343,7 +352,7 @@ func _physics_process(delta: float) -> void:
 		_update_jump(delta)
 	else:
 		jump_cooldown_left = maxf(0.0, jump_cooldown_left - delta)
-		var speed := move_speed * (_spin_data.move_speed_mult if is_spinning else 1.0)
+		var speed := effective_move_speed() * (_spin_move_mult if is_spinning else 1.0)
 		var motion := move_order * speed
 		motion.y *= iso_y_scale
 		velocity = motion

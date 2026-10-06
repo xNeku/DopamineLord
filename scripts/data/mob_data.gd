@@ -24,6 +24,9 @@ enum Ai { MELEE, RANGED, LEAPER }
 
 @export var ai: Ai = Ai.MELEE
 
+## Cuánto resiste los empujones (0 = nada, 1 = inmune).
+@export_range(0.0, 1.0) var knockback_resist: float = 0.0
+
 @export_group("Aparición")
 ## Peso al elegir qué mob hace aparecer el host. Más peso, más frecuente.
 @export var spawn_weight: float = 10.0

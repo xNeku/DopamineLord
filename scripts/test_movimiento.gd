@@ -55,6 +55,7 @@ func _ready() -> void:
 	_skills.name = "SkillManager"
 	_skills.players = players
 	_skills.mobs = _mobs
+	_skills.projectiles = _projectiles
 	add_child(_skills)
 	_local.skill_requested.connect(_on_local_skill_requested)
 	_mobs.mob_killed.connect(_loot.on_mob_killed)
@@ -181,6 +182,8 @@ func _skills_text() -> String:
 			continue
 		var left := _local.skill_cooldown_left[slot]
 		var state := "listo" if left <= 0.0 else "%.1f" % left
+		if _local.skills[slot].is_passive():
+			state = "pasiva"
 		parts.append("[%d] %s: %s" % [slot + 1, _local.skills[slot].display_name, state])
 	return "  ".join(parts)
 

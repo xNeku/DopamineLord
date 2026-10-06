@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ProjectileData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/projectile_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"volley_arrow"
+shape = 1
+color = Color(0.9, 0.95, 0.4, 1)
+tags = Array[StringName]([&"flecha"])
+speed = 420.0
+radius = 3.5
+max_range = 280.0
+damage_mult = 1.0
+pierce = 0

@@ -22,6 +22,12 @@ var leap_cooldown_left: float = 0.0
 var pull_velocity: Vector2 = Vector2.ZERO
 ## Solo en el host: ya ha muerto y se está quitando. Nada más puede golpearlo.
 var dying: bool = false
+## Empujón en curso (solo el host): velocidad en pantalla, tiempo que le queda y el daño crítico
+## que recibirá si acaba fuera de la vista de `knock_crit_peer`.
+var knock_velocity: Vector2 = Vector2.ZERO
+var knock_left: float = 0.0
+var knock_crit_damage: int = 0
+var knock_crit_peer: int = 0
 ## Posición en el suelo plano, la que usa la rejilla del host. Se refresca cada frame.
 var ground_position: Vector2 = Vector2.ZERO
 
