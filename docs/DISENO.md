@@ -83,6 +83,27 @@ Básico: lanza una bola de magia que hace daño.
 - Elemento, munición y estilo como etiquetas en los datos desde ya (regla del nivel 75): bola de magia, flecha, melee.
 - Los kits actuales son la base común. Las elecciones 25/50/75 los repartirán más adelante.
 
+### Rendimiento de mobs y proyectiles (07/10/2026) **[PROPUESTA]**
+Estudio hecho con el panel de métricas (F3) y el modo estrés (F4/F5, o `--stress-mobs=N --stress-proj=N` por línea de comandos). Decisiones técnicas, todas dentro de las reglas ya decididas:
+- **Los mobs ya no son nodos ni cuerpos físicos.** Son objetos de datos (`Mob`, `RefCounted`) que mueve el `MobManager`; no hay `move_and_slide` ni colisión del motor entre mobs. Un solo `MobRenderer` los dibuja todos con `MultiMesh`.
+- **Separación entre mobs** con la rejilla espacial, en 3 fases (cada tick toca un tercio de las celdas) y con empuje máximo por pasada, para que los grupos recién aparecidos se abran sin saltos. Los mobs pesados empujan a los ligeros y los empujados por knockback no ceden.
+- **Obstáculos fijos** (árboles, menas, paredes): se registran aparte en el `MobManager` (`add_obstacle_circle`, `add_obstacle_rect`). El mundo generado tendrá que registrar los suyos por chunk. Las paredes son pocas: cada mob las recorre todas.
+- **Dibujo en bloque:** mobs y proyectiles de jugador en `MultiMesh` con un shader, solo los que están en pantalla. La ordenación por Y con los jugadores y los obstáculos se resuelve con bandas de MultiMesh. Con arte de Neku, la malla pasa a ser un quad con textura.
+- **Red:** la foto de posiciones se manda por cliente, solo con los mobs cercanos (el doble de lo que se ve), 10 bytes por mob y en paquetes bajo el MTU (antes iba un único paquete de todo, que con 120 mobs ya superaba el MTU).
+- **Cambio de sensación (a revisar por Neku):** el jugador ya no choca con los mobs (antes los cuerpos de los mobs lo frenaban). Pasa a través de ellos, y los mobs sí se apartan entre sí. Si se quiere que los mobs bloqueen al jugador, hay que hacerlo a mano en el movimiento del jugador.
+- Se pierden del dibujo de mobs los pinchos del Coloso (queda su aro oscuro).
+
+Medidas en una máquina de escritorio, sin renderizado de GPU (con 400 mobs + 200 proyectiles, a 60 fps fijos):
+| | antes | después |
+|---|---|---|
+| CPU por frame (lógica + comandos de dibujo) | 8,7 ms | 6,6 ms |
+| Llamadas de dibujo por frame | ~2.300 | ~150-340 |
+| Nodos en el árbol | ~570 | ~210 |
+| Dibujado de proyectiles | 3,5-4,6 ms | 0,2 ms |
+Lo que queda de dibujo (150-340) son sobre todo los drops, los textos flotantes y la rejilla de pruebas. La tablet no está medida: mide con F3 y mira "draws" y los ms de cada sección.
+
+Siguiente cuello de botella, por orden: la IA de los mobs (~1,2 ms con 400), la separación (~1,1-2 ms en una multitud densa) y el simular los golpes de proyectiles que atraviesan (hasta ~2 ms con 200).
+
 ## Niveles y especialización
 
 - Nivel 1 a 100, subiendo con la XP de los mobs. **[DECIDIDO]**
