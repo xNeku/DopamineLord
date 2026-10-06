@@ -4,13 +4,18 @@ extends Resource
 ## bloque (ProjectileManager) y todos lo dibujan. Las definiciones viven en
 ## data/projectiles/<id>.tres.
 
-enum Shape { BALL, ARROW }
+enum Shape { BALL, ARROW, SNOWBALL }
 
 @export var id: StringName
 @export var shape: Shape = Shape.BALL
 @export var color: Color = Color(1.0, 0.85, 0.2)
 ## Etiquetas para las sinergias del nivel 75 (elemento, munición, estilo).
 @export var tags: Array[StringName] = []
+
+## Si es true, le afectan los modificadores del lanzador: pasivas (Bounce), alcance y, en las
+## skills que disparan a ritmo, la velocidad de ataque. Regla del juego: todo proyectil de una
+## skill se comporta como lo haría un proyectil normal de esa rama.
+@export var affected_by_passives: bool = true
 
 @export_group("Vuelo")
 ## Píxeles por segundo en el suelo plano.

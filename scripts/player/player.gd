@@ -67,6 +67,8 @@ var skill_cooldown_left: Array[float] = []
 var attack_speed_mult: float = 1.0
 var attack_range_mult: float = 1.0
 var buff_move_mult: float = 1.0
+## Mientras dura un buff, el básico dispara este proyectil en vez del de la rama.
+var basic_projectile_override: StringName = &""
 var buff_time_left: float = 0.0
 ## Girando (Spin to Win).
 var is_spinning: bool = false
@@ -198,6 +200,13 @@ func attacks_per_second() -> float:
 	return attack_speed_mult / maxf(attack_cooldown, 0.05)
 
 
+## El proyectil del ataque básico ahora mismo (el de la rama, o el de un buff). Vacío = golpe.
+func basic_projectile_id() -> StringName:
+	if basic_projectile_override != &"":
+		return basic_projectile_override
+	return class_data.basic_projectile if class_data != null else &""
+
+
 func _is_ranged() -> bool:
 	return class_data != null and class_data.basic_projectile != &""
 
@@ -229,6 +238,7 @@ func apply_buff(data: BuffSkillData) -> void:
 	attack_speed_mult = data.attack_speed_mult
 	attack_range_mult = data.attack_range_mult
 	buff_move_mult = data.move_speed_mult
+	basic_projectile_override = data.basic_projectile_override
 	buff_time_left = data.duration
 	visual.set_buff(true, data.tint)
 
@@ -265,6 +275,7 @@ func _clear_buff() -> void:
 	attack_speed_mult = 1.0
 	attack_range_mult = 1.0
 	buff_move_mult = 1.0
+	basic_projectile_override = &""
 	buff_time_left = 0.0
 	visual.set_buff(false, Color.WHITE)
 

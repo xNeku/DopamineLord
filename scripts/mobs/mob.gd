@@ -25,6 +25,9 @@ var dying: bool = false
 ## Empujón en curso (solo el host): velocidad en pantalla, tiempo que le queda y el daño crítico
 ## que recibirá si acaba fuera de la vista de `knock_crit_peer`.
 var knock_velocity: Vector2 = Vector2.ZERO
+## Ralentización (Lluvia): multiplica su velocidad mientras `slow_left` > 0.
+var slow_mult: float = 1.0
+var slow_left: float = 0.0
 var knock_left: float = 0.0
 var knock_crit_damage: int = 0
 var knock_crit_peer: int = 0

@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ScreenRainSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/screen_rain_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"lluvia"
+display_name = "Lluvia"
+interval = 5.0
+duration = 5.0
+damage_mult = 0.5
+slow_mult = 0.5
+slow_time = 1.5
+visual_balls = 5
+color = Color(0.5, 0.65, 1, 1)

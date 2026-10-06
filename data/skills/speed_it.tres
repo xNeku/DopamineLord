@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="TrailBuffSkillData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/trail_buff_skill_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"speed_it"
+display_name = "Speed It"
+cooldown = 2.0
+duration = 5.0
+attack_speed_mult = 1.0
+attack_range_mult = 1.0
+move_speed_mult = 2.0
+tint = Color(0.55, 0.7, 1.3, 1)
+trail_lifetime = 3.0
+trail_spacing = 16.0
+trail_radius = 14.0
+trail_damage_mult = 0.6
+trail_tick = 0.3

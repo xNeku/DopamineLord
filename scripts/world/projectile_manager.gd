@@ -12,6 +12,8 @@ extends Node2D
 ## Posición del proyectil sobre el suelo, para que no parezca que va por el suelo.
 const FLIGHT_HEIGHT := 12.0
 const EXPLOSION_TIME := 0.3
+const FALL_TIME := 0.3
+const FALL_HEIGHT := 160.0
 ## Topes de proyectiles vivos, por jugador y en total.
 @export var max_per_player: int = 150
 @export var max_total: int = 600
@@ -25,6 +27,7 @@ class Proj:
 	## En el suelo plano, normalizada.
 	var direction: Vector2 = Vector2.RIGHT
 	var traveled: float = 0.0
+	var max_range: float = 0.0
 	var age: float = 0.0
 	var hits: int = 0
 	var radius: float = 5.0
@@ -47,6 +50,9 @@ var mobs: MobManager
 var _sim: Dictionary = {}
 var _view: Dictionary = {}
 var _fx: Array[Dictionary] = []
+## Manchas en el suelo (rastros) y bolas que caen del cielo (Lluvia): solo se dibujan.
+var _patches: Array[Dictionary] = []
+var _falls: Array[Dictionary] = []
 var _per_owner: Dictionary = {}
 var _next_id: int = 1
 
@@ -76,9 +82,9 @@ func projectile_count() -> int:
 
 
 ## Dispara un proyectil (solo el host). `origin` en pantalla, `direction` en el suelo plano.
-## `basic` es true si es el ataque básico (la pasiva Bounce solo cuenta ahí). Devuelve su id,
-## o 0 si se ha llegado a un tope.
-func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: Vector2, damage_mult: float = 1.0, basic: bool = false) -> int:
+## Al proyectil le afectan los modificadores del lanzador (ver `affected_by_passives`). Devuelve
+## su id, o 0 si se ha llegado a un tope.
+func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: Vector2, damage_mult: float = 1.0) -> int:
 	if _sim.size() >= max_total or _per_owner.get(peer_id, 0) >= max_per_player:
 		return 0
 	var data := GameData.projectile(projectile_id)
@@ -95,7 +101,9 @@ func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: V
 	proj.radius = data.radius
 	proj.damage = maxi(1, roundi(caster.attack_damage * data.damage_mult * damage_mult))
 	proj.base_damage = proj.damage
-	if basic:
+	proj.max_range = data.max_range
+	if data.affected_by_passives:
+		proj.max_range *= caster.attack_range_mult
 		for skill in caster.skills:
 			if skill is BounceSkillData:
 				proj.bounces_left = skill.max_bounces
@@ -120,8 +128,27 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	if not _view.is_empty() or not _fx.is_empty():
+	if not _view.is_empty() or not _fx.is_empty() or not _patches.is_empty() or not _falls.is_empty():
 		queue_redraw()
+
+
+## Manchas en el suelo que duran `life` segundos (solo visual; el daño lo lleva quien las
+## pide). Solo el host. Mejor llamarlo con varias posiciones a la vez.
+func add_patches(positions: PackedVector2Array, radius: float, color: Color, life: float) -> void:
+	if positions.is_empty():
+		return
+	if not multiplayer.get_peers().is_empty():
+		_ev_patch.rpc(positions, radius, color, life)
+	_ev_patch(positions, radius, color, life)
+
+
+## Bolas que caen del cielo hasta `positions` (solo visual). Solo el host.
+func add_falls(positions: PackedVector2Array, color: Color) -> void:
+	if positions.is_empty():
+		return
+	if not multiplayer.get_peers().is_empty():
+		_ev_fall.rpc(positions, color)
+	_ev_fall(positions, color)
 
 
 # --- Simulación del host ---------------------------------------------------------------
@@ -150,7 +177,7 @@ func _tick_sim(delta: float) -> void:
 			_hit(proj, mob)
 			if proj.dead:
 				break
-		if not proj.dead and (proj.traveled >= data.max_range or proj.age >= data.lifetime):
+		if not proj.dead and (proj.traveled >= proj.max_range or proj.age >= data.lifetime):
 			_end(proj)
 		elif not proj.dead and data.until_offscreen:
 			var caster := _player_by_peer(proj.owner_peer)
@@ -306,6 +333,18 @@ func _ev_boom(positions: PackedVector2Array, radii: PackedFloat32Array, colors: 
 
 
 @rpc("authority", "reliable")
+func _ev_patch(positions: PackedVector2Array, radius: float, color: Color, life: float) -> void:
+	for spot in positions:
+		_patches.append({"position": spot, "radius": radius, "color": color, "age": 0.0, "life": life})
+
+
+@rpc("authority", "reliable")
+func _ev_fall(positions: PackedVector2Array, color: Color) -> void:
+	for spot in positions:
+		_falls.append({"position": spot, "color": color, "age": 0.0})
+
+
+@rpc("authority", "reliable")
 func _ev_redirect(ids: PackedInt32Array, positions: PackedVector2Array, dirs: PackedVector2Array) -> void:
 	for i in ids.size():
 		var proj: Proj = _view.get(ids[i])
@@ -329,11 +368,19 @@ func _tick_view(delta: float) -> void:
 		# Por si se perdiera el aviso de que ha terminado.
 		if proj.age > proj.data.lifetime + 1.0:
 			_view.erase(proj.id)
-	var i := _fx.size() - 1
+	_age_list(_fx, delta, EXPLOSION_TIME)
+	_age_list(_falls, delta, FALL_TIME)
+	_age_list(_patches, delta, -1.0)
+
+
+## Envejece una lista de efectos y quita los que han terminado (`life` < 0: cada uno trae el suyo).
+func _age_list(list: Array[Dictionary], delta: float, life: float) -> void:
+	var i := list.size() - 1
 	while i >= 0:
-		_fx[i]["age"] += delta
-		if _fx[i]["age"] >= EXPLOSION_TIME:
-			_fx.remove_at(i)
+		list[i]["age"] += delta
+		var limit: float = life if life > 0.0 else list[i]["life"]
+		if list[i]["age"] >= limit:
+			list.remove_at(i)
 		i -= 1
 
 
@@ -342,6 +389,12 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, Iso.Y_SCALE))
 	for proj: Proj in _view.values():
 		draw_circle(Vector2(proj.position.x, proj.position.y / Iso.Y_SCALE), proj.radius * 0.8, Color(0, 0, 0, 0.25))
+	for patch in _patches:
+		var left: float = 1.0 - patch["age"] / patch["life"]
+		var tone: Color = patch["color"]
+		tone.a = 0.35 * minf(1.0, left * 2.0)
+		var at: Vector2 = patch["position"]
+		draw_circle(Vector2(at.x, at.y / Iso.Y_SCALE), patch["radius"], tone)
 	for fx in _fx:
 		var t: float = fx["age"] / EXPLOSION_TIME
 		var ring: float = fx["radius"] * (0.4 + 0.6 * t)
@@ -350,6 +403,11 @@ func _draw() -> void:
 		var spot: Vector2 = fx["position"]
 		draw_circle(Vector2(spot.x, spot.y / Iso.Y_SCALE), ring, color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	for fall in _falls:
+		var t: float = fall["age"] / FALL_TIME
+		var tone: Color = fall["color"]
+		var spot: Vector2 = fall["position"]
+		draw_circle(spot + Vector2(0, -FALL_HEIGHT * (1.0 - t)), 4.0, tone.lightened(0.3))
 	for proj: Proj in _view.values():
 		var at := proj.position + Vector2(0, -FLIGHT_HEIGHT)
 		var color := proj.data.color
@@ -358,6 +416,13 @@ func _draw() -> void:
 			var length := proj.radius * 3.0
 			draw_line(at - along * length, at + along * length * 0.5, color, maxf(2.0, proj.radius * 0.6))
 			draw_circle(at + along * length * 0.5, proj.radius * 0.7, color.lightened(0.4))
+		elif proj.data.shape == ProjectileData.Shape.SNOWBALL:
+			# Bola de nieve rodando: una bola clara con manchas que giran.
+			draw_circle(at, proj.radius, color)
+			for k in 3:
+				var angle := proj.age * 6.0 + k * TAU / 3.0
+				draw_circle(at + Vector2.from_angle(angle) * proj.radius * 0.5, proj.radius * 0.28, color.darkened(0.25))
+			draw_arc(at, proj.radius, 0.0, TAU, 20, color.darkened(0.4), 1.5)
 		else:
 			draw_circle(at, proj.radius * 1.4, Color(color.r, color.g, color.b, 0.3))
 			draw_circle(at, proj.radius, color)

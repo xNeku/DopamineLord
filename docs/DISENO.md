@@ -69,6 +69,12 @@ Básico: lanza una bola de magia que hace daño.
 - Melee: robo de vida y/o regeneración a criterio de Claude. **[DECIDIDO]** Implementado como robo de vida (se cura una fracción del daño que hace, con skills incluidas, así que limpiar oleadas lo cura) más una regeneración pequeña. Los valores van en la hoja de balance. **[PROPUESTA]**
 - Hoja de balance: sí, Neku la va a tocar desde la tablet. **[DECIDIDO]** Formato **[PROPUESTA]**: CSV en `data/balance/` que el juego lee al arrancar y aplica sobre los datos, para que se edite sin scripts ni exportar.
 
+### Reglas de juego añadidas el 06/10/2026 **[DECIDIDO]**
+- **Todo proyectil que lance una skill se comporta como lo haría un proyectil normal de esa rama**: le afectan las pasivas (por ejemplo Bounce), el alcance y, si la skill dispara a ritmo (Fuck all, Lluvia), la velocidad de ataque. En datos, un proyectil puede salirse con `affected_by_passives = false`. Consecuencia: la Big Arrow también rebota si mata.
+- Big ball: las 15 mini bolas hacen daño directo al impactar y no explotan.
+- Speed It: el rastro dura 3 s en el suelo y daña a todo el que lo pisa en ese tiempo.
+- Lluvia: cada gota daña a todo lo que hay en pantalla (el rectángulo fijo de la vista) y lo ralentiza. Cae una gota por cada ataque por segundo que tenga el jugador. Interpretación de Claude de "tantos proyectiles como velocidad de ataque"; si Neku se refería a otra cosa (una cantidad fija por lluvia), se cambia.
+
 ### Reglas de implementación que salen de esto **[PROPUESTA]**
 - Proyectiles de jugadores y mobs: un gestor que simula todos en bloque y los dibuja con un solo nodo (nada de un nodo por proyectil), con tope por jugador. Por red solo viaja el evento (origen, velocidad, parámetros), nunca el estado de cada proyectil.
 - Daños y curaciones del host se agrupan y se mandan en paquetes unas pocas veces por segundo, no un mensaje por impacto.

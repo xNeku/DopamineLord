@@ -22,6 +22,13 @@ var _spins: Array[Dictionary] = []
 var _boomerangs: Dictionary = {}
 var _rains: Array[Dictionary] = []
 var _shooters: Array[Dictionary] = []
+## Speed It: buffs con rastro activos, trozos de rastro vivos (daño) y los nuevos por mandar.
+var _trails: Array[Dictionary] = []
+var _trail_nodes: Array[Dictionary] = []
+var _trail_new: Dictionary = {}
+var _trail_flush: float = 0.0
+## Lluvia (pasiva de Magia): estado por jugador.
+var _screen_rain: Dictionary = {}
 var _nodes: Dictionary = {}
 var _next_id: int = 1
 var _snapshot_timer: float = 0.0
@@ -42,6 +49,8 @@ func _physics_process(delta: float) -> void:
 	_tick_boomerangs(delta)
 	_tick_rains(delta)
 	_tick_shooters(delta)
+	_tick_trails(delta)
+	_tick_screen_rain(delta)
 	_snapshot_timer += delta
 	if _snapshot_timer >= SNAPSHOT_INTERVAL:
 		_snapshot_timer = 0.0
@@ -65,6 +74,8 @@ func _execute(peer_id: int, slot: int, position: Vector2, direction: Vector2, ta
 
 	if skill is BuffSkillData:
 		_buff_start.rpc(peer_id, skill.id)
+		if skill is TrailBuffSkillData:
+			_trails.append({"peer": peer_id, "data": skill, "left": skill.duration, "last": Iso.to_ground(position)})
 	elif skill is SpinSkillData:
 		_spin_start.rpc(peer_id, skill.id)
 		_spins.append({"peer": peer_id, "data": skill, "left": skill.duration, "tick": 0.0})
@@ -121,12 +132,99 @@ func _tick_shooters(delta: float) -> void:
 			_shooters.erase(shooter)
 			continue
 		shooter["angle"] += TAU * data.turns_per_second * delta
-		shooter["accum"] += data.shots_per_second * delta
+		# Modificador de proyectiles: el ritmo sube con la velocidad de ataque (Speed out...).
+		shooter["accum"] += data.shots_per_second * caster.attack_speed_mult * delta
 		while shooter["accum"] >= 1.0:
 			shooter["accum"] -= 1.0
 			for k in data.arrows_per_shot:
 				var angle: float = shooter["angle"] + TAU * k / data.arrows_per_shot
 				projectiles.fire(shooter["peer"], data.projectile_id, caster.position, Vector2.from_angle(angle), data.damage_mult)
+
+
+## Speed It: mientras dura el buff, va dejando trozos de rastro cada cierta distancia. Los
+## trozos dañan a quien los pisa; todos los ven por un solo mensaje cada 0.1 s.
+func _tick_trails(delta: float) -> void:
+	for trail in _trails.duplicate():
+		var caster := _player_by_peer(trail["peer"])
+		var data: TrailBuffSkillData = trail["data"]
+		trail["left"] -= delta
+		if caster == null or caster.is_dead or trail["left"] <= 0.0:
+			_trails.erase(trail)
+			continue
+		var ground := Iso.to_ground(caster.position)
+		if ground.distance_to(trail["last"]) >= data.trail_spacing and not caster.is_jumping:
+			trail["last"] = ground
+			_trail_nodes.append({"peer": trail["peer"], "data": data, "position": caster.position, "age": 0.0, "tick": 0.0})
+			var list: PackedVector2Array = _trail_new.get(data.id, PackedVector2Array())
+			list.append(caster.position)
+			_trail_new[data.id] = list
+	for node in _trail_nodes.duplicate():
+		var data: TrailBuffSkillData = node["data"]
+		node["age"] += delta
+		if node["age"] >= data.trail_lifetime:
+			_trail_nodes.erase(node)
+			continue
+		node["tick"] += delta
+		if node["tick"] >= data.trail_tick:
+			node["tick"] -= data.trail_tick
+			var owner_player := _player_by_peer(node["peer"])
+			if owner_player == null:
+				continue
+			var damage := maxi(1, roundi(owner_player.attack_damage * data.trail_damage_mult))
+			for mob in mobs.mobs_in_circle(node["position"], data.trail_radius):
+				mobs.hit_mob(mob, damage, node["peer"])
+	_trail_flush += delta
+	if _trail_flush >= 0.1:
+		_trail_flush = 0.0
+		for skill_id in _trail_new:
+			var data := GameData.skill(skill_id) as TrailBuffSkillData
+			if projectiles != null:
+				projectiles.add_patches(_trail_new[skill_id], data.trail_radius, data.tint, data.trail_lifetime)
+		_trail_new.clear()
+
+
+## Lluvia (pasiva): cada `interval` segundos llueve durante `duration`. Cada gota daña a todo
+## lo que se ve en pantalla y lo ralentiza; caen tantas gotas por segundo como ataques por
+## segundo tiene el jugador ahora mismo.
+func _tick_screen_rain(delta: float) -> void:
+	for player in players:
+		var data: ScreenRainSkillData = null
+		for skill in player.skills:
+			if skill is ScreenRainSkillData:
+				data = skill
+		if data == null or player.is_dead:
+			_screen_rain.erase(player.peer_id)
+			continue
+		var state: Dictionary = _screen_rain.get(player.peer_id, {})
+		if state.is_empty():
+			state = {"timer": data.interval, "active": 0.0, "accum": 0.0}
+			_screen_rain[player.peer_id] = state
+		if state["active"] > 0.0:
+			state["active"] -= delta
+			state["accum"] += player.attacks_per_second() * delta
+			while state["accum"] >= 1.0:
+				state["accum"] -= 1.0
+				_rain_drop(player, data)
+			if state["active"] <= 0.0:
+				state["timer"] = data.interval
+		else:
+			state["timer"] -= delta
+			if state["timer"] <= 0.0:
+				state["active"] = data.duration
+				state["accum"] = 1.0
+
+
+func _rain_drop(player: Player, data: ScreenRainSkillData) -> void:
+	var damage := maxi(1, roundi(player.attack_damage * data.damage_mult))
+	for mob in mobs.all_mobs():
+		if ViewRange.contains(player.position, mob.position):
+			mobs.hit_mob(mob, damage, player.peer_id)
+			mobs.slow_mob(mob, data.slow_mult, data.slow_time)
+	if projectiles != null:
+		var spots := PackedVector2Array()
+		for i in data.visual_balls:
+			spots.append(player.position + Vector2(randf_range(-1.0, 1.0) * ViewRange.HALF.x, randf_range(-1.0, 1.0) * ViewRange.HALF.y))
+		projectiles.add_falls(spots, data.color)
 
 
 func _tick_boomerangs(delta: float) -> void:

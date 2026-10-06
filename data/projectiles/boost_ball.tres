@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="ProjectileData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/data/projectile_data.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"boost_ball"
+shape = 0
+color = Color(0.65, 0.5, 1, 1)
+tags = Array[StringName]([&"magia", &"bola"])
+speed = 340.0
+radius = 5.0
+max_range = 380.0
+damage_mult = 1.0
+pierce = -1
+grow_radius_per_hit = 1.5
+max_radius = 22.0
+grow_damage_per_hit = 0.15
+explode_radius = 80.0
+explode_damage_mult = 1.5
+explode_at_hits = 5
+explode_ends_projectile = true

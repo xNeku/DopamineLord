@@ -255,6 +255,11 @@ func _think(mob: Mob, delta: float) -> void:
 			return
 		_think_melee(mob, target, to_target, distance, delta)
 
+	if mob.slow_left > 0.0:
+		mob.slow_left -= delta
+		mob.velocity *= mob.slow_mult
+		if mob.slow_left <= 0.0:
+			mob.slow_mult = 1.0
 	# Las skills pueden arrastrar al mob mientras hace otra cosa.
 	mob.velocity += mob.pull_velocity
 	if mob.velocity != Vector2.ZERO:
@@ -399,9 +404,9 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 		return
 	var aim := Iso.to_ground(direction) if direction.length_squared() > 0.0 else Vector2.RIGHT
 	aim = aim.normalized()
-	if attacker.class_data.basic_projectile != &"":
+	if attacker.basic_projectile_id() != &"":
 		if projectiles != null:
-			projectiles.fire(peer_id, attacker.class_data.basic_projectile, position, aim, 1.0, true)
+			projectiles.fire(peer_id, attacker.basic_projectile_id(), position, aim)
 		return
 	var half_arc := deg_to_rad(attacker.attack_arc_degrees) * 0.5
 	for mob in mobs_near_ground(Iso.to_ground(position), attacker.effective_attack_range()):
@@ -468,6 +473,13 @@ func _flush_events() -> void:
 		_mob_events(ids, damages, remainings, positions, crits, deaths)
 	else:
 		_mob_events.rpc(ids, damages, remainings, positions, crits, deaths)
+
+
+## Ralentiza a un mob (solo el host). Se queda con la lentitud más fuerte.
+func slow_mob(mob: Mob, mult: float, seconds: float) -> void:
+	if mob.slow_left <= 0.0 or mult <= mob.slow_mult:
+		mob.slow_mult = mult
+	mob.slow_left = maxf(mob.slow_left, seconds)
 
 
 ## Empuja a un mob `ground_offset` (suelo plano) en `duration` segundos. Los pesados se mueven
