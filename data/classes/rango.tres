@@ -10,3 +10,6 @@ description = "Arco. Flechas desde lejos, rebotes y una lluvia de flechas en tod
 playable = false
 color = Color(0.45, 0.8, 0.3, 1)
 max_health = 90
+attack_damage = 12
+attack_cooldown = 0.45
+basic_projectile = &"basic_arrow"

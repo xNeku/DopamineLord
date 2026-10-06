@@ -178,7 +178,8 @@ func request_attack(direction: Vector2) -> bool:
 		direction = facing
 	attack_cooldown_left = attack_cooldown / attack_speed_mult
 	visual.set_facing(direction)
-	visual.play_swing(direction, effective_attack_range(), attack_arc_degrees)
+	if not _is_ranged():
+		visual.play_swing(direction, effective_attack_range(), attack_arc_degrees)
 	attacked.emit(direction)
 	return true
 
@@ -186,7 +187,18 @@ func request_attack(direction: Vector2) -> bool:
 ## El dueño de este jugador remoto ha atacado: solo enseñamos el golpe.
 func start_remote_attack(direction: Vector2) -> void:
 	visual.set_facing(direction)
-	visual.play_swing(direction, effective_attack_range(), attack_arc_degrees)
+	if not _is_ranged():
+		visual.play_swing(direction, effective_attack_range(), attack_arc_degrees)
+
+
+## Ataques básicos por segundo, con las mejoras activas. Lo usan las skills que dependen de
+## la velocidad de ataque (como la Lluvia del mago).
+func attacks_per_second() -> float:
+	return attack_speed_mult / maxf(attack_cooldown, 0.05)
+
+
+func _is_ranged() -> bool:
+	return class_data != null and class_data.basic_projectile != &""
 
 
 ## Alcance real del golpe, con las mejoras activas.

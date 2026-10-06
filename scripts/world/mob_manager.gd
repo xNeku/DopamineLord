@@ -10,6 +10,11 @@ extends Node
 const MOB_SCENE := preload("res://scenes/mob.tscn")
 ## Cada cuánto se reparte la vida que se ha juntado.
 const HEAL_INTERVAL := 0.25
+## Lado de las celdas de la rejilla espacial (suelo plano) y mayor radio de mob que se espera.
+const GRID_CELL := 48.0
+const MAX_MOB_RADIUS := 24.0
+## Cada cuánto se mandan a los clientes los golpes y muertes juntos.
+const EVENT_INTERVAL := 0.1
 
 ## Solo en el host: un mob ha muerto, con su tipo, su posición y quién lo mató.
 signal mob_killed(kind: StringName, position: Vector2, killer_peer: int)
@@ -46,6 +51,14 @@ var _probe := CircleShape2D.new()
 ## paquetes, no un mensaje por golpe.
 var _heal_pool: Dictionary = {}
 var _heal_timer: float = 0.0
+## Rejilla espacial de los mobs: celda -> mobs. Se rehace cada frame, solo en el host.
+var _grid: Dictionary = {}
+## Golpes y muertes que se mandan a los clientes en un solo paquete.
+var _pending_hits: Dictionary = {}
+var _pending_deaths: PackedInt32Array = PackedInt32Array()
+var _event_timer: float = 0.0
+## Proyectiles de los jugadores. Lo rellena el mundo.
+var projectiles: ProjectileManager
 
 
 func _ready() -> void:
@@ -62,13 +75,43 @@ func all_mobs() -> Array:
 	return _mobs.values()
 
 
-## Los mobs que tocan un círculo de `ground_radius` (en el suelo plano) alrededor de `center`.
+## Los mobs que tocan un círculo de `ground_radius` (en el suelo plano) alrededor de `center`
+## (en pantalla). Usa la rejilla, así que cuesta lo mismo con 40 mobs que con 400.
 func mobs_in_circle(center: Vector2, ground_radius: float) -> Array[Mob]:
+	var ground_center := Iso.to_ground(center)
 	var result: Array[Mob] = []
-	for mob: Mob in _mobs.values():
-		if Iso.to_ground(mob.position - center).length() <= ground_radius + mob.data.radius:
+	for mob in mobs_near_ground(ground_center, ground_radius):
+		if mob.ground_position.distance_to(ground_center) <= ground_radius + mob.data.radius:
 			result.append(mob)
 	return result
+
+
+## Candidatos de la rejilla cerca de un punto del suelo plano. No comprueba la distancia exacta:
+## quien llama debe hacerlo (es la parte barata de la consulta).
+func mobs_near_ground(ground_center: Vector2, ground_radius: float) -> Array[Mob]:
+	var result: Array[Mob] = []
+	var reach := ground_radius + MAX_MOB_RADIUS
+	var low := Vector2i(floori((ground_center.x - reach) / GRID_CELL), floori((ground_center.y - reach) / GRID_CELL))
+	var high := Vector2i(floori((ground_center.x + reach) / GRID_CELL), floori((ground_center.y + reach) / GRID_CELL))
+	for cx in range(low.x, high.x + 1):
+		for cy in range(low.y, high.y + 1):
+			var cell: Array = _grid.get(Vector2i(cx, cy), [])
+			for mob: Mob in cell:
+				if is_instance_valid(mob) and not mob.dying:
+					result.append(mob)
+	return result
+
+
+func _rebuild_grid() -> void:
+	_grid.clear()
+	for mob: Mob in _mobs.values():
+		var ground := Iso.to_ground(mob.position)
+		mob.ground_position = ground
+		var key := Vector2i(floori(ground.x / GRID_CELL), floori(ground.y / GRID_CELL))
+		var cell: Array = _grid.get(key, [])
+		if cell.is_empty():
+			_grid[key] = cell
+		cell.append(mob)
 
 
 ## El jugador local ha atacado. Si somos el host se resuelve aquí; si no, se lo pedimos.
@@ -92,9 +135,15 @@ func _physics_process(delta: float) -> void:
 		_despawn_timer = 0.0
 		_despawn_far_mobs()
 	for mob: Mob in _mobs.values():
-		_think(mob, delta)
+		if not mob.dying:
+			_think(mob, delta)
+	_rebuild_grid()
 	_check_projectiles()
 	_tick_healing(delta)
+	_event_timer += delta
+	if _event_timer >= EVENT_INTERVAL:
+		_event_timer = 0.0
+		_flush_events()
 	_snapshot_timer += delta
 	if _snapshot_timer >= snapshot_interval:
 		_snapshot_timer = 0.0
@@ -342,8 +391,12 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 		return
 	var aim := Iso.to_ground(direction) if direction.length_squared() > 0.0 else Vector2.RIGHT
 	aim = aim.normalized()
+	if attacker.class_data.basic_projectile != &"":
+		if projectiles != null:
+			projectiles.fire(peer_id, attacker.class_data.basic_projectile, position, aim)
+		return
 	var half_arc := deg_to_rad(attacker.attack_arc_degrees) * 0.5
-	for mob: Mob in _mobs.values().duplicate():
+	for mob in mobs_near_ground(Iso.to_ground(position), attacker.effective_attack_range()):
 		var offset := Iso.to_ground(mob.position - position)
 		var reach := attacker.effective_attack_range() + mob.data.radius
 		if offset.length() > reach:
@@ -353,19 +406,55 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 		hit_mob(mob, attacker.attack_damage, peer_id)
 
 
-## Hace daño a un mob (solo el host). Lo usan el ataque básico y las skills.
+## Hace daño a un mob (solo el host). Lo usan el ataque básico, las skills y los proyectiles.
+## El mob se actualiza al instante en el host; los clientes reciben los golpes y muertes
+## juntos cada EVENT_INTERVAL, no uno por golpe.
 func hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
-	var remaining := mob.health - damage
+	if mob.dying:
+		return
 	var attacker := _player_by_peer(attacker_peer)
 	if attacker != null and attacker.life_steal > 0.0:
 		# Robo de vida sobre el daño real, sin contar lo que sobra al rematar.
 		_heal_pool[attacker_peer] = _heal_pool.get(attacker_peer, 0.0) + minf(damage, mob.health) * attacker.life_steal
-	_mob_hit.rpc(mob.mob_id, damage, maxi(remaining, 0))
-	if remaining <= 0:
-		var kind := mob.data.id
-		var spot := mob.position
-		_mob_died.rpc(mob.mob_id)
-		mob_killed.emit(kind, spot, attacker_peer)
+	mob.health = maxi(mob.health - damage, 0)
+	mob.flash()
+	stats["hits"] += 1
+	var entry: Array = _pending_hits.get(mob.mob_id, [0, 0, mob.position])
+	entry[0] += damage
+	entry[1] = mob.health
+	entry[2] = mob.position
+	_pending_hits[mob.mob_id] = entry
+	if mob.health > 0:
+		return
+	mob.dying = true
+	_mobs.erase(mob.mob_id)
+	_pending_deaths.append(mob.mob_id)
+	stats["kills"] += 1
+	mob.queue_free()
+	mob_killed.emit(mob.data.id, mob.position, attacker_peer)
+
+
+## Manda a los clientes los golpes y las muertes acumulados, en un solo mensaje cada uno.
+func _flush_events() -> void:
+	if _pending_hits.is_empty() and _pending_deaths.is_empty():
+		return
+	var ids := PackedInt32Array()
+	var damages := PackedInt32Array()
+	var remainings := PackedInt32Array()
+	var positions := PackedVector2Array()
+	for id in _pending_hits:
+		var entry: Array = _pending_hits[id]
+		ids.append(id)
+		damages.append(entry[0])
+		remainings.append(entry[1])
+		positions.append(entry[2])
+	var deaths := _pending_deaths
+	_pending_hits = {}
+	_pending_deaths = PackedInt32Array()
+	if multiplayer.get_peers().is_empty():
+		_mob_events(ids, damages, remainings, positions, deaths)
+	else:
+		_mob_events.rpc(ids, damages, remainings, positions, deaths)
 
 
 ## Junta la regeneración y reparte la vida pendiente cada HEAL_INTERVAL. Solo el host.
@@ -426,27 +515,27 @@ func _snapshot(ids: PackedInt32Array, positions: PackedVector2Array, healths: Pa
 			mob.apply_snapshot(positions[i], healths[i], flags[i])
 
 
+## Golpes y muertes de los últimos EVENT_INTERVAL segundos, juntos. En el host el mob ya está
+## actualizado: aquí solo se enseñan los números. Los clientes ponen la vida y quitan los muertos.
 @rpc("authority", "call_local", "reliable")
-func _mob_hit(id: int, damage: int, remaining: int) -> void:
-	var mob: Mob = _mobs.get(id)
-	if mob == null:
+func _mob_events(ids: PackedInt32Array, damages: PackedInt32Array, remainings: PackedInt32Array, positions: PackedVector2Array, deaths: PackedInt32Array) -> void:
+	var is_host := multiplayer.is_server()
+	for i in ids.size():
+		var mob: Mob = _mobs.get(ids[i])
+		var at := positions[i]
+		if mob != null:
+			if not is_host:
+				mob.set_health(remainings[i])
+				mob.flash()
+			at = mob.position
+		FloatingText.spawn(self, at + Vector2(0, -26), str(damages[i]), Color(1.0, 0.9, 0.4))
+	if is_host:
 		return
-	mob.set_health(remaining)
-	mob.flash()
-	FloatingText.spawn(self, mob.position + Vector2(0, -26), str(damage), Color(1.0, 0.9, 0.4))
-	if multiplayer.is_server():
-		stats["hits"] += 1
-
-
-@rpc("authority", "call_local", "reliable")
-func _mob_died(id: int) -> void:
-	var mob: Mob = _mobs.get(id)
-	if mob == null:
-		return
-	_mobs.erase(id)
-	mob.queue_free()
-	if multiplayer.is_server():
-		stats["kills"] += 1
+	for id in deaths:
+		var dead: Mob = _mobs.get(id)
+		if dead != null:
+			_mobs.erase(id)
+			dead.queue_free()
 
 
 @rpc("authority", "call_local", "reliable")

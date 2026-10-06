@@ -29,6 +29,10 @@ extends Resource
 @export var attack_range: float = 40.0
 @export_range(10.0, 360.0) var attack_arc_degrees: float = 140.0
 
+## Si no está vacío, el ataque básico dispara este proyectil (data/projectiles/) en lugar de
+## un golpe en arco. Con proyectil, el alcance y el arco de arriba no se usan.
+@export var basic_projectile: StringName = &""
+
 @export_group("Skills")
 ## Las skills de los huecos 1 a 4, por su id (data/skills/). Un id vacío es un hueco sin skill.
 @export var skill_ids: Array[StringName] = []

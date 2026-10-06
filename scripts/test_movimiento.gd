@@ -21,6 +21,7 @@ var _local: Player
 var _mobs: MobManager
 var _loot: LootManager
 var _skills: SkillManager
+var _projectiles: ProjectileManager
 var _remote_by_peer: Dictionary = {}
 var _state_timer: float = 0.0
 var _debug_timer: float = 0.0
@@ -44,6 +45,12 @@ func _ready() -> void:
 	_loot.name = "LootManager"
 	_loot.players = players
 	add_child(_loot)
+	_projectiles = ProjectileManager.new()
+	_projectiles.name = "ProjectileManager"
+	_projectiles.players = players
+	_projectiles.mobs = _mobs
+	add_child(_projectiles)
+	_mobs.projectiles = _projectiles
 	_skills = SkillManager.new()
 	_skills.name = "SkillManager"
 	_skills.players = players

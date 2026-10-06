@@ -20,6 +20,10 @@ var attack_cooldown_left: float = 0.0
 var leap_cooldown_left: float = 0.0
 ## Arrastre de una skill (en pantalla, px/s). Solo el host lo usa.
 var pull_velocity: Vector2 = Vector2.ZERO
+## Solo en el host: ya ha muerto y se está quitando. Nada más puede golpearlo.
+var dying: bool = false
+## Posición en el suelo plano, la que usa la rejilla del host. Se refresca cada frame.
+var ground_position: Vector2 = Vector2.ZERO
 
 var _target_position: Vector2
 var _flash: float = 0.0

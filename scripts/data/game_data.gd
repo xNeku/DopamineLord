@@ -5,6 +5,7 @@ extends RefCounted
 static var _mobs: Dictionary = {}
 static var _skills: Dictionary = {}
 static var _classes: Dictionary = {}
+static var _projectiles: Dictionary = {}
 ## Ramas disponibles, en el orden en que se enseñan en el selector.
 const CLASS_IDS: Array[StringName] = [&"melee", &"rango", &"mago"]
 
@@ -25,3 +26,9 @@ static func char_class(id: StringName) -> ClassData:
 	if not _classes.has(id):
 		_classes[id] = load("res://data/classes/%s.tres" % id) as ClassData
 	return _classes[id]
+
+
+static func projectile(id: StringName) -> ProjectileData:
+	if not _projectiles.has(id):
+		_projectiles[id] = load("res://data/projectiles/%s.tres" % id) as ProjectileData
+	return _projectiles[id]
