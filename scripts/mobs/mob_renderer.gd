@@ -35,6 +35,7 @@ var _mesh: ArrayMesh
 var _bands: Array[MultiMeshInstance2D] = []
 var _buffers: Array[PackedFloat32Array] = []
 var _counts: PackedInt32Array = PackedInt32Array()
+var _last_used: PackedInt32Array = PackedInt32Array()
 var _thresholds := PackedFloat32Array()
 ## Mobs que acaban de morir y se están deshaciendo (posición, tipo, tiempo).
 var _ghosts: Array[Dictionary] = []
@@ -84,7 +85,7 @@ func _process(delta: float) -> void:
 	_simple_hp.clear()
 	_update_bands(delta)
 	PerfProbe.end(&"mob_draw")
-	if ViewInfo.simple_draw or not _simple.is_empty():
+	if ViewInfo.simple_draw() or not _simple.is_empty():
 		queue_redraw()
 
 
@@ -123,7 +124,7 @@ func _update_bands(delta: float) -> void:
 			position += mob.velocity * ahead
 		if position.x < low.x or position.x > high.x or position.y < low.y or position.y > high.y:
 			continue
-		if ViewInfo.simple_draw:
+		if ViewInfo.simple_draw():
 			_simple.append(Vector3(position.x, position.y - 2.0 * mob.radius, mob.kind))
 			_simple_hp.append(clampf(float(mob.health) / mob.data.max_health, 0.0, 1.0))
 			continue
@@ -177,8 +178,18 @@ func _update_bands(delta: float) -> void:
 		var capacity := _buffers[band].size() / FLOATS_PER_INSTANCE
 		if multimesh.instance_count != capacity:
 			multimesh.instance_count = capacity
-		multimesh.buffer = _buffers[band]
-		multimesh.visible_instance_count = _counts[band]
+		if ViewInfo.draw_mode == 2:
+			# Sin `visible_instance_count`: lo que sobra se deja vacío (instancias a cero).
+			var buffer := _buffers[band]
+			var start := _counts[band] * FLOATS_PER_INSTANCE
+			for k in range(start, mini(start + _last_used[band] * FLOATS_PER_INSTANCE, buffer.size())):
+				buffer[k] = 0.0
+			_last_used[band] = _counts[band]
+			multimesh.buffer = buffer
+			multimesh.visible_instance_count = -1
+		else:
+			multimesh.buffer = _buffers[band]
+			multimesh.visible_instance_count = _counts[band]
 		node.visible = _counts[band] > 0
 	for band in range(band_count, _bands.size()):
 		_bands[band].visible = false
@@ -227,6 +238,7 @@ func _ensure_bands(count: int) -> void:
 		_bands.append(node)
 		_buffers.append(PackedFloat32Array())
 	_counts.resize(maxi(count, _counts.size()))
+	_last_used.resize(maxi(count, _counts.size()))
 
 
 ## Una malla para todo el mob. Cada parte lleva su número en el canal rojo del color

@@ -11,6 +11,15 @@ static func world_rect(viewport: Viewport, margin: float) -> Rect2:
 	return rect.grow(margin)
 
 
-## Diagnóstico (F6): dibujo simple con círculos en vez de MultiMesh, para saber si lo que
-## desaparece es cosa de la GPU o de la lógica.
-static var simple_draw: bool = false
+## Cómo se dibujan mobs y proyectiles (F6 va cambiando):
+## 0 = MultiMesh (rápido, lo normal en Windows y Mac).
+## 1 = círculos con `_draw` (más lento, pero seguro: en la GPU de la tablet el MultiMesh hace
+##     desaparecer cosas).
+## 2 = MultiMesh sin `visible_instance_count`: el hueco sobrante se rellena con instancias vacías.
+## Por defecto, 1 en Android y 0 en el resto.
+static var draw_mode: int = 1 if OS.has_feature("android") else 0
+const DRAW_MODES := 3
+
+
+static func simple_draw() -> bool:
+	return draw_mode == 1

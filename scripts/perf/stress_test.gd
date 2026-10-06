@@ -32,8 +32,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		target_mobs = _next_step(target_mobs)
 		print("[stress] mobs objetivo: ", target_mobs)
 	elif event.is_action_pressed("debug_render_mode"):
-		ViewInfo.simple_draw = not ViewInfo.simple_draw
-		print("[stress] dibujo simple: ", ViewInfo.simple_draw)
+		ViewInfo.draw_mode = (ViewInfo.draw_mode + 1) % ViewInfo.DRAW_MODES
+		print("[stress] modo de dibujo: ", ViewInfo.draw_mode)
 	elif event.is_action_pressed("debug_stress_proj"):
 		target_projectiles = _next_step(target_projectiles)
 		_apply_limits()

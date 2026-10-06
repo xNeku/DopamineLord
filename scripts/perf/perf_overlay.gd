@@ -186,7 +186,7 @@ func _write_log(text: String) -> void:
 	for key in stats:
 		extra += "  %s=%d" % [key, stats[key] - int(_last_stats.get(key, 0))]
 	_last_stats = stats
-	extra += "  dibujo_simple=%d" % int(ViewInfo.simple_draw)
+	extra += "  modo_dibujo=%d" % ViewInfo.draw_mode
 	extra += "  peor_frame=%.0fms" % _worst_frame_ms
 	_worst_frame_ms = 0.0
 	if projectiles:

@@ -183,13 +183,14 @@ func _physics_process(delta: float) -> void:
 
 
 var _simple: Array[Vector3] = []
+var _last_used: int = 0
 
 
 func _process(_delta: float) -> void:
 	_simple.clear()
 	var active := not _view.is_empty() or not _fx.is_empty() or not _patches.is_empty() or not _falls.is_empty()
 	# Un redibujado más al quedarse vacío, para que el último fotograma no se quede en pantalla.
-	if active or _was_active or ViewInfo.simple_draw:
+	if active or _was_active or ViewInfo.simple_draw():
 		queue_redraw()
 	_was_active = active
 	PerfProbe.begin(&"proj_draw")
@@ -495,7 +496,7 @@ func _fill_instances() -> void:
 				if proj.ending:
 					finished.append(proj.id)
 				continue
-			if ViewInfo.simple_draw:
+			if ViewInfo.simple_draw():
 				_simple.append(Vector3(position.x, position.y, float(proj.kind)))
 				proj.drawn = true
 				if proj.ending:
@@ -529,8 +530,12 @@ func _fill_instances() -> void:
 			var capacity := buffer.size() / FLOATS_PER_INSTANCE
 			if _multimesh.instance_count != capacity:
 				_multimesh.instance_count = capacity
+			if ViewInfo.draw_mode == 2:
+				for k in range(count * FLOATS_PER_INSTANCE, mini((count + _last_used) * FLOATS_PER_INSTANCE, buffer.size())):
+					buffer[k] = 0.0
 			_multimesh.buffer = buffer
-	_multimesh.visible_instance_count = count
+	_last_used = count
+	_multimesh.visible_instance_count = -1 if ViewInfo.draw_mode == 2 and count > 0 else count
 	stat_drawn = count
 
 
