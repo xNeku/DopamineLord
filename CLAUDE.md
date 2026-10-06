@@ -51,4 +51,4 @@ Debe terminar sin errores de parseo ni de carga. Si hay pruebas, ejecútalas tam
 
 ## Fase actual
 
-Prototipo de combate (dentro del tramo 1): rama `fase-6-clases`. Tres ramas jugables (Melee, Rango, Magia), cada una con ataque básico y 4 skills (ver "Kits base de las tres ramas" en `docs/DISENO.md`), elección de rama al entrar en la partida, stats base por rama y una hoja de balance. Melee ya está hecho; faltan Rango y Magia.
+Prototipo de combate (dentro del tramo 1): rama `fase-6-clases`. Tres ramas jugables (Melee, Rango, Magia), cada una con ataque básico y 4 skills (ver "Kits base de las tres ramas" en `docs/DISENO.md`), elección de rama al entrar en la partida, stats base por rama y una hoja de balance. Las tres ramas (Melee, Rango y Magia) ya están hechas; falta la hoja de balance.

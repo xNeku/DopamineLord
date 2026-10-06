@@ -55,6 +55,7 @@ var _patches: Array[Dictionary] = []
 var _falls: Array[Dictionary] = []
 var _per_owner: Dictionary = {}
 var _next_id: int = 1
+var _was_active: bool = false
 
 # Eventos del host pendientes de mandar este frame.
 var _spawn_ids := PackedInt32Array()
@@ -128,8 +129,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	if not _view.is_empty() or not _fx.is_empty() or not _patches.is_empty() or not _falls.is_empty():
+	var active := not _view.is_empty() or not _fx.is_empty() or not _patches.is_empty() or not _falls.is_empty()
+	# Un redibujado más al quedarse vacío, para que el último fotograma no se quede en pantalla.
+	if active or _was_active:
 		queue_redraw()
+	_was_active = active
 
 
 ## Manchas en el suelo que duran `life` segundos (solo visual; el daño lo lleva quien las
