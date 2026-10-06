@@ -6,8 +6,12 @@ extends Control
 ##   --host          aloja y entra directamente
 ##   --join=IP       se une a esa IP y entra directamente
 ##   --bot           el jugador local lo lleva un bot
+##   --class=ID      elige esa rama sin pasar por el selector (melee, rango, mago)
 
 const WORLD_SCENE := "res://scenes/test_movimiento.tscn"
+const CLASS_SCENE := "res://scenes/seleccion_clase.tscn"
+
+var _forced_class: StringName = &""
 
 @onready var _solo: Button = $Centro/Caja/Solo
 @onready var _host: Button = $Centro/Caja/Alojar
@@ -30,6 +34,10 @@ func _run_command_line() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--bot":
 			Net.bot_mode = true
+		if argument.begins_with("--class="):
+			_forced_class = StringName(argument.trim_prefix("--class="))
+	if Net.bot_mode and _forced_class == &"":
+		_forced_class = &"melee"
 	for argument in OS.get_cmdline_user_args():
 		if argument == "--host":
 			_start_host()
@@ -65,5 +73,10 @@ func _on_connection_failed() -> void:
 	Net.leave()
 
 
+## Con --class o --bot se salta el selector; si no, se elige la rama antes de entrar.
 func _enter_world() -> void:
-	get_tree().change_scene_to_file(WORLD_SCENE)
+	if _forced_class != &"" and GameData.CLASS_IDS.has(_forced_class):
+		Net.choose_class(_forced_class)
+		get_tree().change_scene_to_file(WORLD_SCENE)
+	else:
+		get_tree().change_scene_to_file(CLASS_SCENE)

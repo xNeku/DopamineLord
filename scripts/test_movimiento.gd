@@ -28,7 +28,9 @@ var _debug_timer: float = 0.0
 
 func _ready() -> void:
 	_local = $Player
-	_local.setup(multiplayer.get_unique_id(), true)
+	if Net.local_class == &"":
+		Net.choose_class(&"melee")  # al abrir esta escena sin pasar por el selector
+	_local.setup(multiplayer.get_unique_id(), true, Net.local_class)
 	_local.position = _spawn_point()
 	_local.jumped.connect(Net.send_jump)
 	_local.attacked.connect(_on_local_attacked)
@@ -62,6 +64,7 @@ func _ready() -> void:
 	Net.state_received.connect(_on_state_received)
 	Net.jump_received.connect(_on_jump_received)
 	Net.attack_received.connect(_on_attack_received)
+	Net.class_received.connect(_on_class_received)
 	Net.disconnected.connect(_back_to_menu)
 
 	# Pared: capa 1 (mundo). Cuerpos: capa 2.
@@ -74,7 +77,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_camera.position = _local.position
-	_hud.text = "Vida: %d/%d  Oro: %d  %s\n%s\n%s" % [_local.health, _local.max_health, _local.money, _jump_text(), _skills_text(), _network_text()]
+	_hud.text = "%s  Vida: %d/%d  Oro: %d  %s\n%s\n%s" % [_local.class_data.display_name, _local.health, _local.max_health, _local.money, _jump_text(), _skills_text(), _network_text()]
 
 
 func _physics_process(delta: float) -> void:
@@ -108,7 +111,7 @@ func _add_remote(peer_id: int) -> void:
 		return
 	var player := PLAYER_SCENE.instantiate() as Player
 	add_child(player)
-	player.setup(peer_id, false)
+	player.setup(peer_id, false, Net.peer_classes.get(peer_id, &"melee"))
 	_remote_by_peer[peer_id] = player
 	players.append(player)
 
@@ -141,6 +144,11 @@ func _on_local_skill_requested(slot: int, direction: Vector2, target: Vector2) -
 	_skills.request_skill(slot, _local.position, direction, target)
 
 
+func _on_class_received(peer_id: int, class_id: StringName) -> void:
+	if _remote_by_peer.has(peer_id):
+		_remote_by_peer[peer_id].apply_class(class_id)
+
+
 func _on_attack_received(peer_id: int, direction: Vector2) -> void:
 	if _remote_by_peer.has(peer_id):
 		_remote_by_peer[peer_id].start_remote_attack(direction)
@@ -162,6 +170,8 @@ func _jump_text() -> String:
 func _skills_text() -> String:
 	var parts := PackedStringArray()
 	for slot in _local.skills.size():
+		if _local.skills[slot] == null:
+			continue
 		var left := _local.skill_cooldown_left[slot]
 		var state := "listo" if left <= 0.0 else "%.1f" % left
 		parts.append("[%d] %s: %s" % [slot + 1, _local.skills[slot].display_name, state])
@@ -180,7 +190,7 @@ func _print_debug() -> void:
 	var line := "[red] yo=%d jugadores=%d vida=%d mobs=%d golpes=%d muertes=%d daño_recibido=%d oro=%d drops=%d local=%s" % [multiplayer.get_unique_id(), Net.player_count(), _local.health, _mobs.mob_count(), _mobs.stats["hits"], _mobs.stats["kills"], _mobs.stats["damage_taken"], _local.money, _loot.drop_count(), _local.position.round()]
 	for peer_id in _remote_by_peer:
 		var remote: Player = _remote_by_peer[peer_id]
-		line += " | %d=%s%s" % [peer_id, remote.position.round(), " (salta)" if remote.is_jumping else ""]
+		line += " | %d=%s%s %s" % [peer_id, remote.position.round(), " (salta)" if remote.is_jumping else "", remote.class_data.id]
 	print(line)
 
 

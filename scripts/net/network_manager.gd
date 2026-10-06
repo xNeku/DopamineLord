@@ -15,6 +15,8 @@ signal disconnected
 signal state_received(peer_id: int, position: Vector2, facing: Vector2, walking: float)
 signal jump_received(peer_id: int, from: Vector2, to: Vector2)
 signal attack_received(peer_id: int, direction: Vector2)
+## Un jugador ha dicho qué rama ha elegido (o la ha cambiado).
+signal class_received(peer_id: int, class_id: StringName)
 
 const DEFAULT_PORT := 7777
 const MAX_PLAYERS := 4
@@ -22,10 +24,18 @@ const MAX_PLAYERS := 4
 var is_online: bool = false
 ## Si es true, el jugador local lo controla un bot (para probar con varias instancias).
 var bot_mode: bool = false
+## Rama que ha elegido el jugador local (vacía hasta que elige) y la de cada jugador remoto.
+var local_class: StringName = &""
+var peer_classes: Dictionary = {}
 
 
 func _ready() -> void:
-	multiplayer.peer_connected.connect(func(id: int) -> void: peer_joined.emit(id))
+	multiplayer.peer_connected.connect(func(id: int) -> void:
+		# Quien llega nuevo no sabe qué rama tenemos: se la decimos.
+		if local_class != &"":
+			_receive_class.rpc_id(id, String(local_class))
+		peer_joined.emit(id)
+	)
 	multiplayer.peer_disconnected.connect(func(id: int) -> void: peer_left.emit(id))
 	multiplayer.connected_to_server.connect(func() -> void: connected.emit())
 	multiplayer.connection_failed.connect(func() -> void: connection_failed.emit())
@@ -57,6 +67,8 @@ func leave() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	is_online = false
+	local_class = &""
+	peer_classes.clear()
 
 
 ## Cuántos jugadores hay en la partida, contando al local.
@@ -72,6 +84,14 @@ func local_addresses() -> PackedStringArray:
 			continue
 		result.append(address)
 	return result
+
+
+## El jugador local elige su rama. Se la dice a los que ya están conectados; los que lleguen
+## después la reciben al conectarse.
+func choose_class(class_id: StringName) -> void:
+	local_class = class_id
+	if is_online and not multiplayer.get_peers().is_empty():
+		_receive_class.rpc(String(class_id))
 
 
 func send_state(position: Vector2, facing: Vector2, walking: float) -> void:
@@ -104,3 +124,14 @@ func _receive_jump(from: Vector2, to: Vector2) -> void:
 @rpc("any_peer", "reliable")
 func _receive_attack(direction: Vector2) -> void:
 	attack_received.emit(multiplayer.get_remote_sender_id(), direction)
+
+
+@rpc("any_peer", "reliable")
+func _receive_class(class_id: String) -> void:
+	# Viene de la red: solo se aceptan ids de ramas que existen.
+	var id := StringName(class_id)
+	if not GameData.CLASS_IDS.has(id):
+		return
+	var peer_id := multiplayer.get_remote_sender_id()
+	peer_classes[peer_id] = id
+	class_received.emit(peer_id, id)

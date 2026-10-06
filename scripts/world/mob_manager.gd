@@ -8,6 +8,8 @@ extends Node
 ## igual.
 
 const MOB_SCENE := preload("res://scenes/mob.tscn")
+## Cada cuánto se reparte la vida que se ha juntado.
+const HEAL_INTERVAL := 0.25
 
 ## Solo en el host: un mob ha muerto, con su tipo, su posición y quién lo mató.
 signal mob_killed(kind: StringName, position: Vector2, killer_peer: int)
@@ -40,6 +42,10 @@ var _despawn_timer: float = 0.0
 var _projectiles: Dictionary = {}
 var _snapshot_timer: float = 0.0
 var _probe := CircleShape2D.new()
+## Vida pendiente de curar por jugador (robo de vida y regeneración). Se junta y se manda en
+## paquetes, no un mensaje por golpe.
+var _heal_pool: Dictionary = {}
+var _heal_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -88,6 +94,7 @@ func _physics_process(delta: float) -> void:
 	for mob: Mob in _mobs.values():
 		_think(mob, delta)
 	_check_projectiles()
+	_tick_healing(delta)
 	_snapshot_timer += delta
 	if _snapshot_timer >= snapshot_interval:
 		_snapshot_timer = 0.0
@@ -349,12 +356,39 @@ func _resolve_attack(peer_id: int, position: Vector2, direction: Vector2) -> voi
 ## Hace daño a un mob (solo el host). Lo usan el ataque básico y las skills.
 func hit_mob(mob: Mob, damage: int, attacker_peer: int) -> void:
 	var remaining := mob.health - damage
+	var attacker := _player_by_peer(attacker_peer)
+	if attacker != null and attacker.life_steal > 0.0:
+		# Robo de vida sobre el daño real, sin contar lo que sobra al rematar.
+		_heal_pool[attacker_peer] = _heal_pool.get(attacker_peer, 0.0) + minf(damage, mob.health) * attacker.life_steal
 	_mob_hit.rpc(mob.mob_id, damage, maxi(remaining, 0))
 	if remaining <= 0:
 		var kind := mob.data.id
 		var spot := mob.position
 		_mob_died.rpc(mob.mob_id)
 		mob_killed.emit(kind, spot, attacker_peer)
+
+
+## Junta la regeneración y reparte la vida pendiente cada HEAL_INTERVAL. Solo el host.
+func _tick_healing(delta: float) -> void:
+	for player in players:
+		if player.health_regen > 0.0 and not player.is_dead:
+			_heal_pool[player.peer_id] = _heal_pool.get(player.peer_id, 0.0) + player.health_regen * delta
+	_heal_timer += delta
+	if _heal_timer < HEAL_INTERVAL:
+		return
+	_heal_timer = 0.0
+	for peer_id in _heal_pool.keys():
+		var player := _player_by_peer(peer_id)
+		if player == null or player.is_dead:
+			_heal_pool.erase(peer_id)
+			continue
+		var whole := int(_heal_pool[peer_id])
+		if whole < 1:
+			continue
+		var healed := mini(whole, player.max_health - player.health)
+		_heal_pool[peer_id] -= whole
+		if healed > 0:
+			_player_health.rpc(peer_id, player.health + healed, -healed)
 
 
 func _damage_player(target: Player, amount: int) -> void:
@@ -423,6 +457,8 @@ func _player_health(peer_id: int, health: int, damage: int) -> void:
 	player.set_health(health)
 	if damage > 0:
 		FloatingText.spawn(self, player.position + Vector2(0, -60), str(damage), Color(1.0, 0.35, 0.35))
+	elif damage <= -3:
+		FloatingText.spawn(self, player.position + Vector2(0, -60), "+%d" % -damage, Color(0.4, 1.0, 0.5))
 
 
 @rpc("authority", "call_local", "reliable")

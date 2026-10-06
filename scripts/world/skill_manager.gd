@@ -52,6 +52,8 @@ func _execute(peer_id: int, slot: int, position: Vector2, direction: Vector2, ta
 	if caster == null or caster.is_dead or slot < 0 or slot >= caster.skills.size():
 		return
 	var skill := caster.skills[slot]
+	if skill == null:
+		return
 	if caster.is_remote:
 		if caster.skill_cooldown_left[slot] > COOLDOWN_SLACK:
 			return

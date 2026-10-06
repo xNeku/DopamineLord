@@ -38,18 +38,8 @@ signal skill_requested(slot: int, direction: Vector2, target: Vector2)
 ## Espera entre un salto y el siguiente, desde que aterrizas.
 @export var jump_cooldown: float = 0.8
 
-@export_group("Combate")
-@export var max_health: int = 100
-@export var attack_damage: int = 10
-## Alcance del golpe en el suelo plano, medido desde el jugador.
-@export var attack_range: float = 40.0
-## Anchura del arco del golpe, en grados.
-@export_range(10.0, 360.0) var attack_arc_degrees: float = 140.0
-@export var attack_cooldown: float = 0.4
-
-@export_group("Skills")
-## Las skills de los huecos 1 a 4, por su id (definidas en data/skills/).
-@export var skill_ids: Array[StringName] = [&"melee_boost", &"spin_to_win", &"lanzada", &"guerra"]
+## Los stats de combate (vida, ataque básico, skills) vienen de la rama elegida: ver
+## data/classes/ y `apply_class`.
 
 ## Orden actual de movimiento: dirección en pantalla, con longitud de 0 a 1.
 var move_order: Vector2 = Vector2.ZERO
@@ -58,6 +48,14 @@ var facing: Vector2 = Vector2(1, 1)
 var is_jumping: bool = false
 var jump_cooldown_left: float = 0.0
 var attack_cooldown_left: float = 0.0
+var class_data: ClassData
+var max_health: int = 100
+var attack_damage: int = 10
+var attack_range: float = 40.0
+var attack_arc_degrees: float = 140.0
+var attack_cooldown: float = 0.4
+var life_steal: float = 0.0
+var health_regen: float = 0.0
 var health: int = 100
 var is_dead: bool = false
 ## Dinero. Lo decide el host y llega por red.
@@ -78,6 +76,7 @@ var _spin_data: SpinSkillData
 var peer_id: int = 1
 var is_remote: bool = false
 
+var _base_move_speed: float = 0.0
 var _net_position: Vector2
 var _net_facing: Vector2 = Vector2(1, 1)
 var _net_walking: float = 0.0
@@ -96,16 +95,38 @@ var _jump_time: float = 0.0
 @onready var _shape: CollisionShape2D = $CollisionShape2D
 
 
-## Debe llamarse una vez, después de añadirlo al árbol. Un jugador remoto no lee input.
-func setup(id: int, local: bool) -> void:
+## Debe llamarse una vez, después de añadirlo al árbol. Un jugador remoto no lee input. La rama
+## de un jugador remoto puede llegar más tarde por red: ver `apply_class`.
+func setup(id: int, local: bool, class_id: StringName = &"melee") -> void:
 	peer_id = id
 	is_remote = not local
-	health = max_health
-	for skill_id in skill_ids:
-		skills.append(GameData.skill(skill_id))
-		skill_cooldown_left.append(0.0)
+	_base_move_speed = move_speed
+	apply_class(class_id)
 	if is_remote:
 		$PlayerInput.free()
+
+
+## Pone la rama del jugador: stats, ataque básico y skills. Reinicia vida y recargas.
+func apply_class(class_id: StringName) -> void:
+	var data := GameData.char_class(class_id)
+	if data == null:
+		return
+	class_data = data
+	max_health = data.max_health
+	health = max_health
+	move_speed = _base_move_speed * data.move_speed_mult
+	attack_damage = data.attack_damage
+	attack_range = data.attack_range
+	attack_arc_degrees = data.attack_arc_degrees
+	attack_cooldown = data.attack_cooldown
+	life_steal = data.life_steal
+	health_regen = data.health_regen
+	skills.clear()
+	skill_cooldown_left.clear()
+	for skill_id in data.skill_ids:
+		skills.append(GameData.skill(skill_id) if skill_id != &"" else null)
+		skill_cooldown_left.append(0.0)
+	queue_redraw()
 
 
 ## Estado que manda el dueño de este jugador remoto.
@@ -176,7 +197,7 @@ func effective_attack_range() -> float:
 ## Orden de usar la skill del hueco `slot` (0 a 3). La resuelve el host. `direction` va en el
 ## suelo plano y `target` es el punto al que apunta. Devuelve false si no puede.
 func request_skill(slot: int, direction: Vector2, target: Vector2) -> bool:
-	if is_dead or slot < 0 or slot >= skills.size() or skill_cooldown_left[slot] > 0.0:
+	if is_dead or slot < 0 or slot >= skills.size() or skills[slot] == null or skill_cooldown_left[slot] > 0.0:
 		return false
 	if direction.length_squared() < 0.01:
 		direction = facing
