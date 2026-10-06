@@ -100,7 +100,7 @@ Medidas en una máquina de escritorio, sin renderizado de GPU (con 400 mobs + 20
 | Llamadas de dibujo por frame | ~2.300 | ~150-340 |
 | Nodos en el árbol | ~570 | ~210 |
 | Dibujado de proyectiles | 3,5-4,6 ms | 0,2 ms |
-Lo que queda de dibujo (150-340) son sobre todo los drops, los textos flotantes y la rejilla de pruebas. La tablet no está medida: mide con F3 y mira "draws" y los ms de cada sección.
+Lo que queda de dibujo (150-340) son sobre todo los drops, los textos flotantes y la rejilla de pruebas. El juego es para Windows y Mac; la tablet es solo el entorno de pruebas, así que sirve de máquina lenta pero no es el objetivo. Mide con F3 y mira "draws" y los ms de cada sección.
 
 Siguiente cuello de botella, por orden: la IA de los mobs (~1,2 ms con 400), la separación (~1,1-2 ms en una multitud densa) y el simular los golpes de proyectiles que atraviesan (hasta ~2 ms con 200).
 

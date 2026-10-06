@@ -49,7 +49,7 @@ godot --headless --path . --quit-after 60
 
 Debe terminar sin errores de parseo ni de carga. Si hay pruebas, ejecútalas también.
 
-Para medir rendimiento: F3 enseña el panel de métricas (ms por sección, llamadas de dibujo, nodos); F4/F5 suben los mobs y proyectiles a 100/200/400. En headless: `godot --headless --path . -- --host --bot --class=rango --perf --stress-mobs=400 --stress-proj=200` escribe una línea cada 2 s. Para comparar versiones: `godot --headless --path . --fixed-fps 60 --quit-after 1500 -- ...` y medir el tiempo total. Los tiempos de dibujo reales solo se miden en el dispositivo (tablet).
+Para medir rendimiento: F3 enseña el panel de métricas (ms por sección, llamadas de dibujo, nodos); F4/F5 suben los mobs y proyectiles a 100/200/400. En headless: `godot --headless --path . -- --host --bot --class=rango --perf --stress-mobs=400 --stress-proj=200` escribe una línea cada 2 s. Para comparar versiones: `godot --headless --path . --fixed-fps 60 --quit-after 1500 -- ...` y medir el tiempo total. Los tiempos de dibujo reales solo se miden con GPU real (el juego apunta a Windows y Mac; la tablet es entorno de pruebas).
 
 ## Fase actual
 
