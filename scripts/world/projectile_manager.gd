@@ -182,10 +182,14 @@ func _physics_process(delta: float) -> void:
 	PerfProbe.end(&"proj_net")
 
 
+var _simple: Array[Vector3] = []
+
+
 func _process(_delta: float) -> void:
+	_simple.clear()
 	var active := not _view.is_empty() or not _fx.is_empty() or not _patches.is_empty() or not _falls.is_empty()
 	# Un redibujado más al quedarse vacío, para que el último fotograma no se quede en pantalla.
-	if active or _was_active:
+	if active or _was_active or ViewInfo.simple_draw:
 		queue_redraw()
 	_was_active = active
 	PerfProbe.begin(&"proj_draw")
@@ -491,6 +495,12 @@ func _fill_instances() -> void:
 				if proj.ending:
 					finished.append(proj.id)
 				continue
+			if ViewInfo.simple_draw:
+				_simple.append(Vector3(position.x, position.y, float(proj.kind)))
+				proj.drawn = true
+				if proj.ending:
+					finished.append(proj.id)
+				continue
 			var offset := count * FLOATS_PER_INSTANCE
 			buffer[offset] = 1.0
 			buffer[offset + 1] = 0.0
@@ -614,6 +624,9 @@ func _draw() -> void:
 		var spot: Vector2 = fx["position"]
 		draw_circle(Vector2(spot.x, spot.y / Iso.Y_SCALE), ring, color)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	for spot in _simple:
+		var tone := Color(_kind_colors[int(spot.z)].x, _kind_colors[int(spot.z)].y, _kind_colors[int(spot.z)].z)
+		draw_circle(Vector2(spot.x, spot.y), 5.0, tone)
 	for fall in _falls:
 		var t: float = fall["age"] / FALL_TIME
 		var tone: Color = fall["color"]

@@ -9,3 +9,8 @@ extends RefCounted
 static func world_rect(viewport: Viewport, margin: float) -> Rect2:
 	var rect: Rect2 = viewport.get_canvas_transform().affine_inverse() * viewport.get_visible_rect()
 	return rect.grow(margin)
+
+
+## Diagnóstico (F6): dibujo simple con círculos en vez de MultiMesh, para saber si lo que
+## desaparece es cosa de la GPU o de la lógica.
+static var simple_draw: bool = false

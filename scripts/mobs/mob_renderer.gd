@@ -38,6 +38,9 @@ var _counts: PackedInt32Array = PackedInt32Array()
 var _thresholds := PackedFloat32Array()
 ## Mobs que acaban de morir y se están deshaciendo (posición, tipo, tiempo).
 var _ghosts: Array[Dictionary] = []
+## Solo para el dibujo simple de diagnóstico (F6).
+var _simple: Array[Vector3] = []
+var _simple_hp := PackedFloat32Array()
 
 
 func _init() -> void:
@@ -77,8 +80,21 @@ func _process(delta: float) -> void:
 	if players.is_empty():
 		return
 	PerfProbe.begin(&"mob_draw")
+	_simple.clear()
+	_simple_hp.clear()
 	_update_bands(delta)
 	PerfProbe.end(&"mob_draw")
+	if ViewInfo.simple_draw or not _simple.is_empty():
+		queue_redraw()
+
+
+func _draw() -> void:
+	for i in _simple.size():
+		var spot := _simple[i]
+		var color := Color(_kind_colors[int(spot.z)].x, _kind_colors[int(spot.z)].y, _kind_colors[int(spot.z)].z)
+		var radius := _kind_radii[int(spot.z)]
+		draw_circle(Vector2(spot.x, spot.y), radius * 1.4, color)
+		draw_rect(Rect2(spot.x - radius, spot.y - radius * 3.2, radius * 2.0 * _simple_hp[i], 3.0), Color(0.3, 1.0, 0.3))
 
 
 func _update_bands(delta: float) -> void:
@@ -106,6 +122,10 @@ func _update_bands(delta: float) -> void:
 		if not mob.is_puppet:
 			position += mob.velocity * ahead
 		if position.x < low.x or position.x > high.x or position.y < low.y or position.y > high.y:
+			continue
+		if ViewInfo.simple_draw:
+			_simple.append(Vector3(position.x, position.y - 2.0 * mob.radius, mob.kind))
+			_simple_hp.append(clampf(float(mob.health) / mob.data.max_health, 0.0, 1.0))
 			continue
 		var band := 0
 		while band < threshold_count and position.y > thresholds[band]:
