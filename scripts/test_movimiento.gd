@@ -58,6 +58,17 @@ func _ready() -> void:
 	_skills.projectiles = _projectiles
 	add_child(_skills)
 	_local.skill_requested.connect(_on_local_skill_requested)
+	var overlay := PerfOverlay.new()
+	overlay.name = "PerfOverlay"
+	overlay.mobs = _mobs
+	overlay.projectiles = _projectiles
+	add_child(overlay)
+	var stress := StressTest.new()
+	stress.name = "StressTest"
+	stress.mobs = _mobs
+	stress.projectiles = _projectiles
+	stress.player = _local
+	add_child(stress)
 	_mobs.mob_killed.connect(_loot.on_mob_killed)
 	_mobs.player_died.connect(_loot.on_player_died)
 	if Net.bot_mode:

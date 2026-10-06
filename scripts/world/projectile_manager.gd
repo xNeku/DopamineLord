@@ -121,11 +121,17 @@ func fire(peer_id: int, projectile_id: StringName, origin: Vector2, direction: V
 
 
 func _physics_process(delta: float) -> void:
+	PerfProbe.begin(&"proj_view")
 	_tick_view(delta)
+	PerfProbe.end(&"proj_view")
 	if not multiplayer.is_server():
 		return
+	PerfProbe.begin(&"proj_sim")
 	_tick_sim(delta)
+	PerfProbe.end(&"proj_sim")
+	PerfProbe.begin(&"proj_net")
 	_flush()
+	PerfProbe.end(&"proj_net")
 
 
 func _process(_delta: float) -> void:
@@ -389,6 +395,12 @@ func _age_list(list: Array[Dictionary], delta: float, life: float) -> void:
 
 
 func _draw() -> void:
+	PerfProbe.begin(&"proj_draw")
+	_draw_all()
+	PerfProbe.end(&"proj_draw")
+
+
+func _draw_all() -> void:
 	# Primero todas las sombras, con una sola transformación; luego los cuerpos.
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, Iso.Y_SCALE))
 	for proj: Proj in _view.values():

@@ -102,6 +102,19 @@ func mobs_near_ground(ground_center: Vector2, ground_radius: float) -> Array[Mob
 	return result
 
 
+## Solo para pruebas de rendimiento: hace aparecer `count` mobs de golpe en un anillo alrededor
+## de `center` (en pantalla), a la vista y fuera de ella.
+func debug_spawn(count: int, center: Vector2) -> void:
+	for i in count:
+		var kind := _pick_kind()
+		if kind == &"":
+			return
+		var spot := center + Iso.to_screen(Vector2.from_angle(randf() * TAU) * randf_range(120.0, 420.0))
+		var id := _next_id
+		_next_id += 1
+		_spawn_mob.rpc(id, kind, spot)
+
+
 func _rebuild_grid() -> void:
 	_grid.clear()
 	for mob: Mob in _mobs.values():
@@ -134,12 +147,19 @@ func _physics_process(delta: float) -> void:
 	if _despawn_timer >= 1.0:
 		_despawn_timer = 0.0
 		_despawn_far_mobs()
+	PerfProbe.begin(&"mob_think")
 	for mob: Mob in _mobs.values():
 		if not mob.dying:
 			_think(mob, delta)
+	PerfProbe.end(&"mob_think")
+	PerfProbe.begin(&"mob_grid")
 	_rebuild_grid()
+	PerfProbe.end(&"mob_grid")
+	PerfProbe.begin(&"mob_shots")
 	_check_projectiles()
+	PerfProbe.end(&"mob_shots")
 	_tick_healing(delta)
+	PerfProbe.begin(&"mob_net")
 	_event_timer += delta
 	if _event_timer >= EVENT_INTERVAL:
 		_event_timer = 0.0
@@ -148,6 +168,7 @@ func _physics_process(delta: float) -> void:
 	if _snapshot_timer >= snapshot_interval:
 		_snapshot_timer = 0.0
 		_send_snapshot()
+	PerfProbe.end(&"mob_net")
 
 
 # --- Lógica del host -------------------------------------------------------------------
@@ -263,7 +284,9 @@ func _think(mob: Mob, delta: float) -> void:
 	# Las skills pueden arrastrar al mob mientras hace otra cosa.
 	mob.velocity += mob.pull_velocity
 	if mob.velocity != Vector2.ZERO:
+		PerfProbe.begin(&"mob_slide")
 		mob.move_and_slide()
+		PerfProbe.end(&"mob_slide")
 
 
 func _think_melee(mob: Mob, target: Player, to_target: Vector2, distance: float, delta: float) -> void:
